@@ -33,11 +33,13 @@ resource "aws_subnet" "private" {
 
 resource "aws_eip" "nat" {
   domain = "vpc"
-  tags   = { Name = "${var.vpc_name}-nat-eip" }
+  tags   = {
+    Name = "${var.vpc_name}-nat-eip"
+  }
 }
 
 resource "aws_nat_gateway" "this" {
   allocation_id = aws_eip.nat.id
-  subnet_id     = values(aws_subnet.public)[0].id
+  subnet_id     = aws_subnet.public[var.public_subnets[0]].id
   depends_on    = [aws_internet_gateway.this]
 }

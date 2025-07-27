@@ -1,12 +1,14 @@
 # Lesson 5 Terraform project
 
-## Встановіть Terraform (якщо необхідно)
+## Вимоги до середовища
 
-Використовуйте офіційний [Гайд з інсталяції](https://developer.hashicorp.com/terraform/install)
-
-## Встановіть AWS CLI (якщо необхідно)
-
-Використовуйте офіційний [Гайд з інсталяції](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
+- Операційна система Linux
+- Git
+- Docker
+- AWS CLI
+- Terraform
+- Helm
+- kubectl
 
 Переконайтеся що автентифікаційні дані для Вашого AWS аккаунту налаштовані у вашій системі.
 
@@ -22,52 +24,43 @@ git clone https://github.com/AntonChubarov/goit-microservice-project.git
 cd goit-microservice-project
 ```
 
-3. Перемкніться на гілку `lesson-5`:
+3. Перемкніться на гілку `lesson-7`:
 ```shell
-git checkout lesson-5
+git checkout lesson-7
 ```
 
 4. Перейдіть у папку проекту:
 ```shell
-cd lesson-5
+cd lesson-7
 ```
 
-5. Закоментуйте код у файлі ```backend.tf```.
-
-6. Ініціалізуйте проект Terraform:
+6. Розгорніть проект:
 ```shell
-terraform init
+sh scripts/setup.sh
 ```
 
-7. Перевірте конфігурацію проекту Terraform:
+7. Перевірте що застосунок працює: Перейдіть за посиланням `http://<Service hostname>/db-check` - повинно бути отримане повідомлення `{"status": "ok"}`, або перейдіть за посиланням `http://<Service hostname>/admin` - повинна відобразитись дефолтна адмін-сторінка Django-сервісу. Service hostname буде виведено в кінці виконання скрипта.
+
+   Примітка: сервіс може стати доступним на посиланням не миттєво після завершення роботи скрипта.
+
+8. Налаштуйте конфігурацію для віддаленого керування кластером Kubernetes:
 ```shell
-terraform validate
+sh scripts/aws_kubeconfig.sh
 ```
 
-8. Перевірте план розгортання проекту Terraform:
+9. Перегляньте список подів:
 ```shell
-terraform plan
+kubectl get pods
 ```
 
-9. Розгорніть проект Terraform:
+10. Перевірте логи подів:
 ```shell
-terraform apply
+kubectl logs -f <pod_name>
 ```
 
-10. Розкоментуйте код у файлі ```backend.tf```.
+11. Альтернативно - скористайтесь інструментом `k9s`.
 
-11. Переконфыгуруйте проект Terraform:
+12. Видаліть проект:
 ```shell
-terraform init -reconfigure
+sh scripts/destroy.sh
 ```
-12. Повторіть команду розгортання проекту щоб додати стан у S3-бакет:
-```shell
-terraform apply
-```
-
-13. Після перевірки видаліть проект Terraform:
-```shell
-terraform destroy
-```
-
-14. Додатково - видаліть S3 бакет та талиці DynamoDB через консоль AWS.
