@@ -1,5 +1,4 @@
 data "kubernetes_service_v1" "jenkins_svc" {
-  provider = kubernetes.eks
   metadata {
     name      = "jenkins"
     namespace = var.namespace

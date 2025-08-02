@@ -47,6 +47,11 @@ module "jenkins" {
   cluster_name      = module.eks.cluster_name
   oidc_provider_arn = module.eks.oidc_provider_arn
   oidc_provider_url = module.eks.oidc_provider_url
+
+  providers = {
+    kubernetes = kubernetes.eks
+    helm       = helm.eks
+  }
 }
 
 module "argo_cd" {
@@ -54,4 +59,9 @@ module "argo_cd" {
   cluster_name = module.eks.cluster_name
   repo_url     = "https://github.com/AntonChubarov/goit-microservice-project.git"
   revision     = "lesson-8-9"
+
+  providers = {
+    kubernetes = kubernetes.eks
+    helm       = helm.eks
+  }
 }

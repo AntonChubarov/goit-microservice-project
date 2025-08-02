@@ -1,5 +1,4 @@
 data "kubernetes_service_v1" "argocd_server" {
-  provider = kubernetes.eks
   metadata {
     name      = "argo-cd-argocd-server"
     namespace = var.namespace
