@@ -27,29 +27,3 @@ resource "aws_iam_role_policy_attachment" "ebs_irsa_policy" {
   role       = aws_iam_role.ebs_csi_irsa_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
 }
-
-resource "helm_release" "aws_ebs_csi_driver" {
-  name             = "aws-ebs-csi-driver"
-  repository       = "https://kubernetes-sigs.github.io/aws-ebs-csi-driver"
-  chart            = "aws-ebs-csi-driver"
-  namespace        = "kube-system"
-  create_namespace = false
-
-  values = [
-    yamlencode({
-      controller = {
-        serviceAccount = {
-          create      = true
-          name        = "ebs-csi-controller-sa"
-          annotations = {
-            "eks.amazonaws.com/role-arn" = aws_iam_role.ebs_csi_irsa_role.arn
-          }
-        }
-      }
-    })
-  ]
-
-  depends_on = [
-    aws_iam_role_policy_attachment.ebs_irsa_policy
-  ]
-}

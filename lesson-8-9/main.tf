@@ -52,6 +52,8 @@ module "jenkins" {
     kubernetes = kubernetes.eks
     helm       = helm.eks
   }
+
+  depends_on = [helm_release.aws_ebs_csi_driver]
 }
 
 module "argo_cd" {
