@@ -1,0 +1,34 @@
+podTemplate(label: 'ci', containers: [
+  containerTemplate(name: 'kaniko', image: 'gcr.io/kaniko-project/executor:v1.22.0', command: 'cat', ttyEnabled: true)
+]) {
+  node('ci') {
+    stage('Checkout') {
+      checkout scm
+    }
+    stage('Build and Push') {
+      container('kaniko') {
+        sh '''
+          AWS_REGION=us-east-1
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REPO_URL="$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/lesson-8-9-ecr"
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO_URL
+          /kaniko/executor --context `pwd` --dockerfile Dockerfile --destination $ECR_REPO_URL:${BUILD_NUMBER}
+        '''
+      }
+    }
+    stage('Update Chart') {
+      sh '''
+        CHART_FILE=lesson-8-9/charts/django-app/values.yaml
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        ECR_REPO_URL="$ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/lesson-8-9-ecr"
+        sed -i "s|repository:.*|repository: \\\"$ECR_REPO_URL\\\"|" $CHART_FILE
+        sed -i "s|tag:.*|tag: \\\"${BUILD_NUMBER}\\\"|" $CHART_FILE
+        git config user.email "ci@example.com"
+        git config user.name "ci"
+        git add $CHART_FILE
+        git commit -m "ci: image ${BUILD_NUMBER}"
+        git push origin HEAD:main
+      '''
+    }
+  }
+}

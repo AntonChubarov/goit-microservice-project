@@ -1,0 +1,11 @@
+controller:
+  installPlugins:
+    - kubernetes
+    - workflow-aggregator
+    - git
+    - credentials-binding
+    - blueocean
+    - configuration-as-code
+  serviceType: LoadBalancer
+agent:
+  enabled: false

@@ -24,23 +24,32 @@ module "ecr" {
 }
 
 module "eks" {
-  source                 = "./modules/eks"
-  cluster_name           = "lesson-8-9-eks"
-  kubernetes_version     = "1.29"
-  subnet_ids             = module.vpc.public_subnet_ids
+  source             = "./modules/eks"
+  cluster_name       = "lesson-8-9-eks"
+  kubernetes_version = "1.29"
+  subnet_ids         = module.vpc.public_subnet_ids
 }
 
 module "rds" {
-  source              = "./modules/rds"
-  vpc_id              = module.vpc.vpc_id
-  private_subnet_ids  = module.vpc.private_subnet_ids
-  vpc_cidr_block      = "10.0.0.0/16"
+  source             = "./modules/rds"
+  vpc_id             = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
+  vpc_cidr_block     = "10.0.0.0/16"
+  db_identifier      = "lesson-8-9-db"
+  db_name            = "mydb"
+  db_username        = "myuser"
+  instance_class     = "db.t3.micro"
+  allocated_storage  = 20
+}
 
-  db_identifier       = "lesson-8-9-db"
-  db_name             = "mydb"
-  db_username         = "myuser"
+module "jenkins" {
+  source       = "./modules/jenkins"
+  cluster_name = module.eks.cluster_name
+}
 
-  # optional overrides
-  instance_class      = "db.t3.micro"
-  allocated_storage   = 20
+module "argo_cd" {
+  source       = "./modules/argo_cd"
+  cluster_name = module.eks.cluster_name
+  repo_url     = "https://github.com/AntonChubarov/goit-microservice-project.git"
+  revision     = "main"
 }
