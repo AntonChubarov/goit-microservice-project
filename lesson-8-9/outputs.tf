@@ -30,7 +30,6 @@ output "eks_cluster_endpoint" {
   value = module.eks.cluster_endpoint
 }
 
-# NEW: DB outputs
 output "db_endpoint" {
   value = module.rds.endpoint
 }
@@ -50,4 +49,20 @@ output "db_username" {
 output "db_password" {
   value     = module.rds.password
   sensitive = true
+}
+
+output "oidc_provider_arn" {
+  value = module.eks.oidc_provider_arn
+}
+
+output "oidc_provider_url" {
+  value = module.eks.oidc_provider_url
+}
+
+output "jenkins_url" {
+  value = module.jenkins.jenkins_url
+}
+
+output "argocd_url" {
+  value = module.argo_cd.argocd_url
 }

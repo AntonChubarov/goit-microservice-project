@@ -1,34 +1,89 @@
-podTemplate(label: 'ci', containers: [
-  containerTemplate(name: 'kaniko', image: 'gcr.io/kaniko-project/executor:v1.22.0', command: 'cat', ttyEnabled: true)
-]) {
-  node('ci') {
-    stage('Checkout') {
-      checkout scm
+pipeline {
+  agent {
+    kubernetes {
+      yaml """
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    jenkins: kaniko
+spec:
+  serviceAccountName: jenkins-sa
+  containers:
+    - name: kaniko
+      image: gcr.io/kaniko-project/executor:v1.22.0
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c"]
+      args: ["sleep 99d"]
+    - name: aws
+      image: amazon/aws-cli:2
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c"]
+      args: ["sleep 99d"]
+"""
     }
-    stage('Build and Push') {
-      container('kaniko') {
-        sh '''
-          AWS_REGION=us-east-1
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          ECR_REPO_URL="$ACCOUNT_ID.dkr.ecr.${AWS_REGION}.amazonaws.com/lesson-8-9-ecr"
-          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO_URL
-          /kaniko/executor --context `pwd` --dockerfile Dockerfile --destination $ECR_REPO_URL:${BUILD_NUMBER}
-        '''
+  }
+
+  environment {
+    AWS_REGION   = "us-east-1"
+    IMAGE_NAME   = "lesson-8-9-ecr"
+    IMAGE_TAG    = "${env.BUILD_NUMBER}"
+    CHART_FILE   = "lesson-8-9/charts/django-app/values.yaml"
+    DOCKERFILE   = "Dockerfile"
+    CONTEXT_DIR  = "."
+    GIT_BRANCH   = "lesson-8-9"
+    GIT_REPO_URL = "https://github.com/AntonChubarov/goit-microservice-project.git"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Resolve ECR Registry') {
+      steps {
+        container('aws') {
+          script {
+            def acct = sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
+            env.ECR_REGISTRY = "${acct}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
+          }
+        }
       }
     }
-    stage('Update Chart') {
-      sh '''
-        CHART_FILE=lesson-8-9/charts/django-app/values.yaml
-        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-        ECR_REPO_URL="$ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/lesson-8-9-ecr"
-        sed -i "s|repository:.*|repository: \\\"$ECR_REPO_URL\\\"|" $CHART_FILE
-        sed -i "s|tag:.*|tag: \\\"${BUILD_NUMBER}\\\"|" $CHART_FILE
-        git config user.email "ci@example.com"
-        git config user.name "ci"
-        git add $CHART_FILE
-        git commit -m "ci: image ${BUILD_NUMBER}"
-        git push origin HEAD:main
-      '''
+
+    stage('Build & Push Image (Kaniko)') {
+      steps {
+        container('kaniko') {
+          sh '''
+            /kaniko/executor \
+              --context "${CONTEXT_DIR}" \
+              --dockerfile "${DOCKERFILE}" \
+              --destination "${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}" \
+              --cache=true
+          '''
+        }
+      }
+    }
+
+    stage('Update Helm values and Push to Git') {
+      steps {
+        sh '''
+          set -eu
+          sed -i "s|^\\s*repository:.*|  repository: \\\"${ECR_REGISTRY}/${IMAGE_NAME}\\\"|" "${CHART_FILE}"
+          sed -i "s|^\\s*tag:.*|  tag: \\\"${IMAGE_TAG}\\\"|" "${CHART_FILE}"
+          git config user.email "ci@example.com"
+          git config user.name "ci"
+          git add "${CHART_FILE}"
+          git commit -m "ci: image ${IMAGE_TAG}" || echo "No changes to commit"
+        '''
+        withCredentials([usernamePassword(credentialsId: 'github-token', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PAT')]) {
+          sh '''
+            set -eu
+            git remote set-url origin "https://${GIT_USER}:${GIT_PAT}@github.com/AntonChubarov/goit-microservice-project.git"
+            git push origin HEAD:${GIT_BRANCH}
+          '''
+        }
+      }
     }
   }
 }

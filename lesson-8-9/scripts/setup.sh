@@ -1,90 +1,65 @@
 #!/bin/sh
 set -eu
 
-# ======== Configuration ==========
-AWS_REGION="us-east-1"
-PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
 
-DOCKERFILE_PATH="$PROJECT_ROOT/../Dockerfile"
-DOCKER_CONTEXT="$(dirname "$DOCKERFILE_PATH")"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
 
-CHART_PATH="$PROJECT_ROOT/charts/django-app"
-RELEASE_NAME="django-app"
-METRICS_SERVER_NAME="metrics-server"
-IMAGE_TAG="$(date +%Y%m%d%H%M%S)"
-# =================================
+cd "${ROOT_DIR}"
 
-cd "$PROJECT_ROOT"
-
-# --- Preflight checks ---
-if [ ! -f "$DOCKERFILE_PATH" ]; then
-  echo "ERROR: Dockerfile not found at $DOCKERFILE_PATH" >&2
-  exit 1
-fi
-if [ ! -f "$DOCKER_CONTEXT/requirements.txt" ]; then
-  echo "ERROR: requirements.txt not found next to the Dockerfile at $DOCKER_CONTEXT" >&2
-  echo "       Ensure requirements.txt is inside the Docker build context." >&2
-  exit 1
-fi
-
-# Terraform setup
+echo ">> Terraform init/apply ..."
 terraform init -upgrade
 terraform apply -auto-approve
 
-# Get Terraform outputs
-ECR_REPO_URL="$(terraform output -raw ecr_repository_url)"
-CLUSTER_NAME="$(terraform output -raw eks_cluster_name)"
+EKS_CLUSTER_NAME="$(terraform output -raw eks_cluster_name)"
+ECR_REPO_URL="$(terraform output -raw ecr_repository_url || true)"
 
-DB_ENDPOINT="$(terraform output -raw db_endpoint)"
-DB_PORT="$(terraform output -raw db_port)"
-DB_NAME="$(terraform output -raw db_name)"
-DB_USER="$(terraform output -raw db_username)"
-DB_PASS="$(terraform output -raw db_password)"
+echo ">> Updating kubeconfig for cluster: ${EKS_CLUSTER_NAME} (region: ${REGION})"
+aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --region "${REGION}"
 
-# Update kubeconfig
-aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
+wait_lb() {
+  NS="$1"
+  SVC="$2"
+  PROTO="$3"
+  i=0
+  while [ $i -lt 60 ]; do
+    HOST="$(kubectl -n "${NS}" get svc "${SVC}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+    [ -z "${HOST}" ] && HOST="$(kubectl -n "${NS}" get svc "${SVC}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+    if [ -n "${HOST}" ]; then
+      echo "${PROTO}://${HOST}"
+      return 0
+    fi
+    i=$((i+1))
+    printf "."
+    sleep 10
+  done
+  echo ""
+  return 1
+}
 
-# Install metrics-server
-helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server
-helm repo update
-helm upgrade --install "$METRICS_SERVER_NAME" metrics-server/metrics-server -n kube-system --create-namespace
+echo ">> Waiting for Jenkins LoadBalancer ..."
+JENKINS_URL="$(wait_lb jenkins jenkins http || true)"
+echo ""
+echo ">> Waiting for Argo CD LoadBalancer ..."
+ARGOCD_URL="$(wait_lb argocd argo-cd-argocd-server http || true)"
+echo ""
 
-# Login to ECR
-REGISTRY_HOST="$(echo "$ECR_REPO_URL" | cut -d'/' -f1)"
-aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY_HOST"
+if [ -z "${JENKINS_URL}" ]; then
+  JENKINS_URL="$(terraform output -raw jenkins_url || true)"
+fi
+if [ -z "${ARGOCD_URL}" ]; then
+  ARGOCD_URL="$(terraform output -raw argocd_url || true)"
+fi
 
-# Build and push Docker image
-# IMPORTANT: use DOCKER_CONTEXT (the Dockerfile's directory), not PROJECT_ROOT
-docker build -f "$DOCKERFILE_PATH" -t "$ECR_REPO_URL:$IMAGE_TAG" "$DOCKER_CONTEXT"
-docker push "$ECR_REPO_URL:$IMAGE_TAG"
-
-# Compose DATABASE_URL and set Helm secrets
-DATABASE_URL="postgres://${DB_USER}:${DB_PASS}@${DB_ENDPOINT}:${DB_PORT}/${DB_NAME}"
-
-helm upgrade --install "$RELEASE_NAME" "$CHART_PATH" \
-  --set image.repository="$ECR_REPO_URL" \
-  --set image.tag="$IMAGE_TAG" \
-  --set-string secrets.POSTGRES_DB="$DB_NAME" \
-  --set-string secrets.POSTGRES_USER="$DB_USER" \
-  --set-string secrets.POSTGRES_PASSWORD="$DB_PASS" \
-  --set-string secrets.POSTGRES_HOST="$DB_ENDPOINT" \
-  --set-string secrets.POSTGRES_PORT="$DB_PORT" \
-  --set-string secrets.DATABASE_URL="$DATABASE_URL"
-
-# Wait for LoadBalancer hostname
-printf "Waiting for LoadBalancer hostname"
-i=0
-while [ "$i" -lt 60 ]; do
-  HOSTNAME=$(kubectl get svc "$RELEASE_NAME" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
-  if [ -n "$HOSTNAME" ]; then
-    echo
-    echo "Service hostname: $HOSTNAME"
-    exit 0
-  fi
-  printf "."
-  sleep 5
-  i=$((i + 1))
-done
-
-echo
-echo "Timed out waiting for LoadBalancer hostname"
+echo "====================================="
+echo "Deployment complete"
+[ -n "${ECR_REPO_URL}" ] && echo "ECR repo: ${ECR_REPO_URL}"
+[ -n "${JENKINS_URL}" ] && echo "Jenkins UI: ${JENKINS_URL}"
+if [ -n "${ARGOCD_URL}" ]; then
+  echo "Argo CD UI: ${ARGOCD_URL}"
+  echo "Initial Argo CD admin password:"
+  kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || true
+  echo ""
+fi
+echo "====================================="

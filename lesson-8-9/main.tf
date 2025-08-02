@@ -43,13 +43,15 @@ module "rds" {
 }
 
 module "jenkins" {
-  source       = "./modules/jenkins"
-  cluster_name = module.eks.cluster_name
+  source            = "./modules/jenkins"
+  cluster_name      = module.eks.cluster_name
+  oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_provider_url = module.eks.oidc_provider_url
 }
 
 module "argo_cd" {
   source       = "./modules/argo_cd"
   cluster_name = module.eks.cluster_name
   repo_url     = "https://github.com/AntonChubarov/goit-microservice-project.git"
-  revision     = "main"
+  revision     = "lesson-8-9"
 }

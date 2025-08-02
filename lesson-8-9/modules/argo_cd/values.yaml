@@ -1,3 +1,22 @@
+global:
+  image:
+    tag: ""
+
 server:
+  insecure: true
   service:
     type: LoadBalancer
+    ports:
+      http: 80
+      https: 443
+  extraArgs:
+    - --insecure
+
+redis:
+  enabled: true
+
+controller:
+  enabled: true
+
+repoServer:
+  enabled: true

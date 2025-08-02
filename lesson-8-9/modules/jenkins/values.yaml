@@ -1,11 +1,81 @@
 controller:
-  installPlugins:
-    - kubernetes
-    - workflow-aggregator
-    - git
-    - credentials-binding
-    - blueocean
-    - configuration-as-code
+  admin:
+    username: admin
+    password: admin123
+
   serviceType: LoadBalancer
+  servicePort: 80
+  service:
+    port: 80
+    targetPort: 8080
+
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+
+  persistentVolume:
+    enabled: true
+    storageClass: "ebs-sc"
+    size: 10Gi
+
+  installPlugins:
+    - kubernetes:latest
+    - workflow-aggregator:latest
+    - git:latest
+    - configuration-as-code:latest
+    - credentials-binding:latest
+    - github:latest
+    - docker-workflow:latest
+    - job-dsl:latest
+
+  serviceAccount:
+    name: jenkins-sa
+    create: false
+
+  JCasC:
+    configScripts:
+      credentials: |
+        credentials:
+          system:
+            domainCredentials:
+              - credentials:
+                  - usernamePassword:
+                      scope: GLOBAL
+                      id: github-token
+                      username: YOUR_GITHUB_USERNAME
+                      password: YOUR_GITHUB_PAT
+                      description: GitHub PAT for pushing to repo
+      seed-job: |
+        jobs:
+          - script: >
+              job('seed-job') {
+                description('Seeds pipeline for goit-microservice-project (Jenkinsfile in repo root)')
+                steps {
+                  dsl {
+                    text('''
+                      pipelineJob("goit-microservice-project") {
+                        definition {
+                          cpsScm {
+                            scm {
+                              git {
+                                remote {
+                                  url("https://github.com/AntonChubarov/goit-microservice-project.git")
+                                  credentials("github-token")
+                                }
+                                branches("*/lesson-8-9")
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ''')
+                  }
+                }
+              }
+
 agent:
   enabled: false

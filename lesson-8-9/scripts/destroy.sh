@@ -1,18 +1,12 @@
 #!/bin/sh
 set -eu
 
-# ======== Configuration ==========
-AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
-PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-RELEASE_NAME="django-app"
-METRICS_SERVER_NAME="metrics-server"
-# =================================
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
 
-cd "$PROJECT_ROOT"
+cd "${ROOT_DIR}"
 
-# Uninstall Helm releases (ignore errors)
-helm uninstall "$RELEASE_NAME" >/dev/null 2>&1 || true
-helm uninstall "$METRICS_SERVER_NAME" -n kube-system >/dev/null 2>&1 || true
-
-# Destroy Terraform-managed resources
+echo ">> Destroying Terraform-managed resources ..."
 terraform destroy -auto-approve
+
+echo "Done."

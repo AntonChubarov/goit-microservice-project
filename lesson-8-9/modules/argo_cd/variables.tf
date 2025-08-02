@@ -9,7 +9,7 @@ variable "namespace" {
 
 variable "chart_version" {
   type    = string
-  default = "6.7.17"
+  default = "5.53.14"
 }
 
 variable "repo_url" {
@@ -17,6 +17,5 @@ variable "repo_url" {
 }
 
 variable "revision" {
-  type    = string
-  default = "main"
+  type = string
 }

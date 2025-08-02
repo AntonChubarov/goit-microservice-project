@@ -9,5 +9,13 @@ variable "namespace" {
 
 variable "chart_version" {
   type    = string
-  default = "5.2.0"
+  default = "5.8.27"
+}
+
+variable "oidc_provider_arn" {
+  type = string
+}
+
+variable "oidc_provider_url" {
+  type = string
 }
