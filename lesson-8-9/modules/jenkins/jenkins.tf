@@ -26,7 +26,8 @@ resource "aws_iam_role" "jenkins_kaniko_role" {
       Action    = "sts:AssumeRoleWithWebIdentity",
       Condition = {
         StringEquals = {
-          "${replace(var.oidc_provider_url, "https://", "")}:sub" : "system:serviceaccount:${var.namespace}:jenkins-sa"
+          "${replace(var.oidc_provider_url, "https://", "")}:sub" : "system:serviceaccount:${var.namespace}:jenkins-sa",
+          "${replace(var.oidc_provider_url, "https://", "")}:aud" : "sts.amazonaws.com"
         }
       }
     }]
@@ -76,6 +77,13 @@ resource "helm_release" "jenkins" {
   version          = var.chart_version
   namespace        = var.namespace
   create_namespace = false
+
+  wait               = true
+  timeout            = 900
+  atomic             = false
+  dependency_update  = true
+  cleanup_on_fail    = false
+  disable_openapi_validation = true
 
   values = [file("${path.module}/values.yaml")]
 
