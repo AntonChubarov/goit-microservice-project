@@ -33,7 +33,7 @@ resource "aws_db_instance" "this" {
   engine                     = "postgres"
   instance_class             = var.instance_class
   username                   = var.db_username
-  password                   = random_password.db.result
+  password                   = random_password.db_password.result
   db_name                    = var.db_name
 
   allocated_storage          = var.allocated_storage
