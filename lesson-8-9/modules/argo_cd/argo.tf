@@ -35,24 +35,26 @@ resource "helm_release" "django_app" {
 
   values = [
     yamlencode({
-      applications = [{
-        name      = "django-app"
-        namespace = var.namespace
-        project   = "default"
-        source = {
-          repoURL        = var.repo_url
-          targetRevision = var.revision
-          path           = "lesson-8-9/charts/django-app"
+      applications = [
+        {
+          name      = "django-app"
+          namespace = var.namespace
+          project   = "default"
+          source = {
+            repoURL        = var.repo_url
+            targetRevision = var.revision
+            path           = "lesson-8-9/charts/django-app"
+          }
+          destination = {
+            server    = "https://kubernetes.default.svc"
+            namespace = "default"
+          }
+          syncPolicy = {
+            automated = { prune = true, selfHeal = true }
+            syncOptions = ["CreateNamespace=true"]
+          }
         }
-        destination = {
-          server    = "https://kubernetes.default.svc"
-          namespace = "default"
-        }
-        syncPolicy = {
-          automated = { prune = true, selfHeal = true }
-          syncOptions = ["CreateNamespace=true"]
-        }
-      }]
+      ]
     })
   ]
 
