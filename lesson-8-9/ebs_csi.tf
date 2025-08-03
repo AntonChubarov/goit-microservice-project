@@ -1,6 +1,6 @@
 variable "enable_ebs_csi_driver" {
   type    = bool
-  default = false
+  default = true
 }
 
 resource "helm_release" "aws_ebs_csi_driver" {

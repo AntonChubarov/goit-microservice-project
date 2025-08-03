@@ -3,7 +3,7 @@ controller:
     username: admin
     password: admin123
 
-  serviceType: LoadBalancer
+  serviceType: ClusterIP
 
   persistentVolume:
     enabled: true
@@ -23,3 +23,44 @@ controller:
   serviceAccount:
     name: jenkins-sa
     create: false
+
+  JCasC:
+    enabled: true
+    configScripts:
+      jcasc.yaml: |
+        jenkins:
+          systemMessage: "Jenkins"
+          numExecutors: 0
+          clouds:
+            - kubernetes:
+                name: "k8s"
+                serverUrl: "https://kubernetes.default.svc"
+                namespace: "jenkins"
+                jenkinsUrl: "http://jenkins.jenkins.svc.cluster.local:8080"
+                containerCapStr: "10"
+                templates: []
+        credentials:
+          system:
+            domainCredentials:
+              - credentials:
+                  - usernamePassword:
+                      id: "github-token"
+                      username: "gh"
+                      password: "changeme"
+                      description: "GitHub PAT"
+        jobs:
+          - script: >
+              pipelineJob('lesson-8-9') {
+                definition {
+                  cpsScm {
+                    scm {
+                      git {
+                        remote { url('https://github.com/AntonChubarov/goit-microservice-project.git') }
+                        branches('lesson-8-9')
+                      }
+                    }
+                    scriptPath('Jenkinsfile')
+                  }
+                }
+                triggers { scm('H/5 * * * *') }
+              }

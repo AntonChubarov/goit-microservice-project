@@ -7,18 +7,25 @@ global:
 server:
   insecure: true
   service:
-    type: LoadBalancer
+    type: ClusterIP
     ports:
       http: 80
       https: 443
   extraArgs:
     - --insecure
 
-redis:
+configs:
+  params:
+    server.insecure: true
+
+applicationSet:
   enabled: true
 
 controller:
-  enabled: true
+  replicas: 1
 
 repoServer:
-  enabled: true
+  replicas: 1
+
+dex:
+  enabled: false

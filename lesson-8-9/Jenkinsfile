@@ -9,17 +9,26 @@ metadata:
     jenkins: kaniko
 spec:
   serviceAccountName: jenkins-sa
+  volumes:
+    - name: docker-config
+      emptyDir: {}
   containers:
     - name: kaniko
       image: gcr.io/kaniko-project/executor:v1.22.0
       imagePullPolicy: IfNotPresent
       command: ["sh", "-c"]
       args: ["sleep 99d"]
+      volumeMounts:
+        - name: docker-config
+          mountPath: /kaniko/.docker
     - name: aws
       image: amazon/aws-cli:2
       imagePullPolicy: IfNotPresent
       command: ["sh", "-c"]
       args: ["sleep 99d"]
+      volumeMounts:
+        - name: docker-config
+          mountPath: /kaniko/.docker
 """
     }
   }
@@ -40,13 +49,20 @@ spec:
       steps { checkout scm }
     }
 
-    stage('Resolve ECR Registry') {
+    stage('Resolve ECR Registry + Login') {
       steps {
         container('aws') {
-          script {
-            def acct = sh(script: 'aws sts get-caller-identity --query Account --output text', returnStdout: true).trim()
-            env.ECR_REGISTRY = "${acct}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
-          }
+          sh '''
+            set -eu
+            acct="$(aws sts get-caller-identity --query Account --output text)"
+            echo "${acct}.dkr.ecr.${AWS_REGION}.amazonaws.com" > /tmp/ecr.txt
+            pw="$(aws ecr get-login-password --region "${AWS_REGION}")"
+            mkdir -p /kaniko/.docker
+            auth="$(printf 'AWS:%s' "${pw}" | base64 -w 0 | tr -d '\n')"
+            reg="$(cat /tmp/ecr.txt)"
+            printf '{"auths":{"https://%s":{"auth":"%s"}}}\n' "${reg}" "${auth}" > /kaniko/.docker/config.json
+          '''
+          script { env.ECR_REGISTRY = sh(script: 'cat /tmp/ecr.txt', returnStdout: true).trim() }
         }
       }
     }

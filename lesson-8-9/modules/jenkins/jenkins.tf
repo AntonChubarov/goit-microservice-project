@@ -8,21 +8,8 @@ resource "kubernetes_namespace" "jenkins" {
   }
 }
 
-resource "kubernetes_storage_class_v1" "ebs_sc" {
-  metadata {
-    name = "ebs-sc"
-    annotations = {
-      "storageclass.kubernetes.io/is-default-class" = "true"
-    }
-  }
-  storage_provisioner = "kubernetes.io/aws-ebs"
-  reclaim_policy      = "Delete"
-  volume_binding_mode = "WaitForFirstConsumer"
-  parameters          = { type = "gp2" }
-}
-
-resource "aws_iam_role" "jenkins_kaniko_role" {
-  name = "${var.cluster_name}-jenkins-kaniko-role"
+resource "aws_iam_role" "jenkins_irsa" {
+  name = "${var.cluster_name}-jenkins-irsa"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
@@ -40,41 +27,36 @@ resource "aws_iam_role" "jenkins_kaniko_role" {
   })
 }
 
-resource "aws_iam_role_policy" "jenkins_ecr_policy" {
-  name = "${var.cluster_name}-jenkins-kaniko-ecr-policy"
-  role = aws_iam_role.jenkins_kaniko_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Effect = "Allow",
-      Action = [
-        "ecr:GetAuthorizationToken",
-        "ecr:BatchCheckLayerAvailability",
-        "ecr:PutImage",
-        "ecr:InitiateLayerUpload",
-        "ecr:UploadLayerPart",
-        "ecr:CompleteLayerUpload",
-        "ecr:DescribeRepositories"
-      ],
-      Resource = "*"
-    }]
-  })
+resource "aws_iam_role_policy_attachment" "jenkins_ecr_poweruser" {
+  role       = aws_iam_role.jenkins_irsa.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser"
 }
 
-resource "kubernetes_service_account_v1" "jenkins_sa" {
+resource "kubernetes_service_account" "jenkins_sa" {
   metadata {
     name      = "jenkins-sa"
     namespace = var.namespace
     annotations = {
-      "eks.amazonaws.com/role-arn" = aws_iam_role.jenkins_kaniko_role.arn
+      "eks.amazonaws.com/role-arn" = aws_iam_role.jenkins_irsa.arn
     }
   }
+  depends_on = [kubernetes_namespace.jenkins]
+}
 
-  depends_on = [
-    kubernetes_namespace.jenkins,
-    aws_iam_role_policy.jenkins_ecr_policy
-  ]
+resource "kubernetes_storage_class_v1" "ebs_sc" {
+  metadata {
+    name = "ebs-sc"
+    annotations = {
+      "storageclass.kubernetes.io/is-default-class" = "true"
+    }
+  }
+  storage_provisioner = "ebs.csi.aws.com"
+  reclaim_policy      = "Delete"
+  volume_binding_mode = "WaitForFirstConsumer"
+  parameters = {
+    type = "gp3"
+    fsType = "ext4"
+  }
 }
 
 resource "helm_release" "jenkins" {
@@ -91,7 +73,7 @@ resource "helm_release" "jenkins" {
   values = [file("${path.module}/values.yaml")]
 
   depends_on = [
-    kubernetes_service_account_v1.jenkins_sa,
+    kubernetes_service_account.jenkins_sa,
     kubernetes_storage_class_v1.ebs_sc
   ]
 }

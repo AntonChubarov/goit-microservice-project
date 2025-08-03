@@ -1,7 +1,3 @@
-variable "cluster_name" {
-  type = string
-}
-
 variable "namespace" {
   type    = string
   default = "argocd"
@@ -10,6 +6,11 @@ variable "namespace" {
 variable "chart_version" {
   type    = string
   default = "5.53.14"
+}
+
+variable "apps_chart_version" {
+  type    = string
+  default = "1.6.2"
 }
 
 variable "repo_url" {

@@ -23,11 +23,6 @@ resource "aws_security_group" "db" {
   }
 }
 
-resource "random_password" "db" {
-  length           = 20
-  special          = true
-}
-
 resource "aws_db_instance" "this" {
   identifier                 = var.db_identifier
   engine                     = "postgres"
