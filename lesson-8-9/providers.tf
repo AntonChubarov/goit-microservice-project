@@ -12,12 +12,14 @@ terraform {
     }
     helm = {
       source  = "hashicorp/helm"
+      # Keep this constraint, but your locally installed version may be older.
+      # The config below works for both styles that expect `kubernetes` as an argument.
       version = ">= 2.13.2"
     }
   }
 }
 
-# Discover the EKS cluster details from the infrastructure we just created
+# Get EKS connection details from the created cluster
 data "aws_eks_cluster" "eks" {
   name       = module.eks.cluster_name
   depends_on = [module.eks]
@@ -29,8 +31,7 @@ data "aws_eks_cluster_auth" "eks" {
 }
 
 #############################################
-# DEFAULT providers (unaliased) – used if any
-# child module/resource binds to the default.
+# DEFAULT providers (unaliased)
 #############################################
 provider "kubernetes" {
   host                   = data.aws_eks_cluster.eks.endpoint
@@ -39,7 +40,7 @@ provider "kubernetes" {
 }
 
 provider "helm" {
-  kubernetes {
+  kubernetes = {
     host                   = data.aws_eks_cluster.eks.endpoint
     cluster_ca_certificate = base64decode(data.aws_eks_cluster.eks.certificate_authority[0].data)
     token                  = data.aws_eks_cluster_auth.eks.token
@@ -47,8 +48,8 @@ provider "helm" {
 }
 
 #############################################
-# Aliased providers – explicitly passed into
-# modules (jenkins, argo_cd) via `providers={}`.
+# Aliased providers – passed to modules:
+#   providers = { kubernetes = kubernetes.eks, helm = helm.eks }
 #############################################
 provider "kubernetes" {
   alias                  = "eks"
@@ -59,7 +60,7 @@ provider "kubernetes" {
 
 provider "helm" {
   alias = "eks"
-  kubernetes {
+  kubernetes = {
     host                   = data.aws_eks_cluster.eks.endpoint
     cluster_ca_certificate = base64decode(data.aws_eks_cluster.eks.certificate_authority[0].data)
     token                  = data.aws_eks_cluster_auth.eks.token
