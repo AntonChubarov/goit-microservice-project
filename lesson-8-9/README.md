@@ -36,7 +36,7 @@ cd lesson-8-9
 
 6. Розгорніть проект:
 ```shell
-sh scripts/setup.sh
+sh scripts/deploy.sh
 ```
 
 7. Перевірте що застосунок працює: Перейдіть за посиланням `http://<Service hostname>/db-check` - повинно бути отримане повідомлення `{"status": "ok"}`, або перейдіть за посиланням `http://<Service hostname>/admin` - повинна відобразитись дефолтна адмін-сторінка Django-сервісу. Service hostname буде виведено в кінці виконання скрипта.

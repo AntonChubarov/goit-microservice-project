@@ -3,7 +3,7 @@ controller:
     username: admin
     password: admin123
 
-  serviceType: ClusterIP
+  serviceType: LoadBalancer
 
   persistentVolume:
     enabled: true

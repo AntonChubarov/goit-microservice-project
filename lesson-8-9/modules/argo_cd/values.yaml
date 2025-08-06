@@ -7,7 +7,7 @@ global:
 server:
   insecure: true
   service:
-    type: ClusterIP
+    type: LoadBalancer
     ports:
       http: 80
       https: 443
