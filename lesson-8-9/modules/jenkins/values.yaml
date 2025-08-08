@@ -1,15 +1,42 @@
 controller:
+  # Jenkins controller image tag (keep or adjust as you wish)
+  tag: "2.466.1-lts-jdk17"
+
+  # Define executors only once (was duplicated before)
+  numExecutors: 0
+
+  # Admin credentials (the chart will create the secret for you)
   admin:
     username: admin
     password: admin123
 
   serviceType: LoadBalancer
 
+  # Give the controller a bit more RAM so startup is smoother
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "1Gi"
+    limits:
+      cpu: "2"
+      memory: "2Gi"
+
+  # Extend the startup probe so Jenkins has up to 10 min to boot
+  startupProbe:
+    httpGet:
+      path: /login
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 60   # 60 × 10 s = 10 min
+
+  # Persistence (unchanged)
   persistentVolume:
     enabled: true
     storageClass: "ebs-sc"
     size: 10Gi
 
+  # Plugin list (unchanged)
   installPlugins:
     - kubernetes
     - workflow-aggregator
@@ -20,17 +47,19 @@ controller:
     - docker-workflow
     - job-dsl
 
+  # Use an existing ServiceAccount created elsewhere
   serviceAccount:
     name: jenkins-sa
     create: false
 
+  # ─────────────── Jenkins Configuration as Code ───────────────
   JCasC:
     enabled: true
+    defaultConfig: false   # disable the chart’s built-in snippet
     configScripts:
-      jcasc.yaml: |
+      jenkins-config: |    # key has *no* “.yaml” suffix
         jenkins:
           systemMessage: "Jenkins"
-          numExecutors: 0
           clouds:
             - kubernetes:
                 name: "k8s"
@@ -55,7 +84,9 @@ controller:
                   cpsScm {
                     scm {
                       git {
-                        remote { url('https://github.com/AntonChubarov/goit-microservice-project.git') }
+                        remote {
+                          url('https://github.com/AntonChubarov/goit-microservice-project.git')
+                        }
                         branches('lesson-8-9')
                       }
                     }
