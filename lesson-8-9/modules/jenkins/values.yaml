@@ -1,18 +1,21 @@
 controller:
-  # Jenkins controller image tag (keep or adjust as you wish)
-  tag: "2.466.1-lts-jdk17"
+  # ───────────── Docker image ─────────────
+  image:
+    registry: ""                 # empty → docker.io (default)
+    repository: "jenkins/jenkins"
+    tag: "2.466.1-lts-jdk17"     # << moved here
+    pullPolicy: IfNotPresent
 
-  # Define executors only once (was duplicated before)
-  numExecutors: 0
+  numExecutors: 0                # defined only once
 
-  # Admin credentials (the chart will create the secret for you)
+  # Admin user
   admin:
     username: admin
     password: admin123
 
   serviceType: LoadBalancer
 
-  # Give the controller a bit more RAM so startup is smoother
+  # Controller resources
   resources:
     requests:
       cpu: "200m"
@@ -21,7 +24,7 @@ controller:
       cpu: "2"
       memory: "2Gi"
 
-  # Extend the startup probe so Jenkins has up to 10 min to boot
+  # Startup probe — give Jenkins up to 10 min to boot
   startupProbe:
     httpGet:
       path: /login
@@ -30,13 +33,13 @@ controller:
     timeoutSeconds: 5
     failureThreshold: 60   # 60 × 10 s = 10 min
 
-  # Persistence (unchanged)
+  # Persistence
   persistentVolume:
     enabled: true
     storageClass: "ebs-sc"
     size: 10Gi
 
-  # Plugin list (unchanged)
+  # Plugin list
   installPlugins:
     - kubernetes
     - workflow-aggregator
@@ -47,17 +50,17 @@ controller:
     - docker-workflow
     - job-dsl
 
-  # Use an existing ServiceAccount created elsewhere
+  # Use existing SA created elsewhere
   serviceAccount:
     name: jenkins-sa
     create: false
 
-  # ─────────────── Jenkins Configuration as Code ───────────────
+  # ───────────── Jenkins Configuration-as-Code ─────────────
   JCasC:
     enabled: true
-    defaultConfig: false   # disable the chart’s built-in snippet
+    defaultConfig: false
     configScripts:
-      jenkins-config: |    # key has *no* “.yaml” suffix
+      jenkins-config: |
         jenkins:
           systemMessage: "Jenkins"
           clouds:
@@ -84,9 +87,7 @@ controller:
                   cpsScm {
                     scm {
                       git {
-                        remote {
-                          url('https://github.com/AntonChubarov/goit-microservice-project.git')
-                        }
+                        remote { url('https://github.com/AntonChubarov/goit-microservice-project.git') }
                         branches('lesson-8-9')
                       }
                     }
