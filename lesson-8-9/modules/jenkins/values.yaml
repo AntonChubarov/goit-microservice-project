@@ -1,21 +1,15 @@
 controller:
-  # ───────────── Docker image ─────────────
   image:
-    registry: ""                 # empty → docker.io (default)
-    repository: "jenkins/jenkins"
-    tag: "2.466.1-lts-jdk17"     # << moved here
-    pullPolicy: IfNotPresent
+    repository: jenkins/jenkins
+    tag: "2.466.1-lts-jdk17"
+  numExecutors: 0
 
-  numExecutors: 0                # defined only once
-
-  # Admin user
   admin:
     username: admin
     password: admin123
 
   serviceType: LoadBalancer
 
-  # Controller resources
   resources:
     requests:
       cpu: "200m"
@@ -24,22 +18,20 @@ controller:
       cpu: "2"
       memory: "2Gi"
 
-  # Startup probe — give Jenkins up to 10 min to boot
+  # ────── startupProbe tuned for very first boot ──────
   startupProbe:
     httpGet:
       path: /login
       port: http
     periodSeconds: 10
     timeoutSeconds: 5
-    failureThreshold: 60   # 60 × 10 s = 10 min
+    failureThreshold: 120    # 20 min (was 10 min)
 
-  # Persistence
   persistentVolume:
     enabled: true
     storageClass: "ebs-sc"
     size: 10Gi
 
-  # Plugin list
   installPlugins:
     - kubernetes
     - workflow-aggregator
@@ -50,12 +42,10 @@ controller:
     - docker-workflow
     - job-dsl
 
-  # Use existing SA created elsewhere
   serviceAccount:
     name: jenkins-sa
     create: false
 
-  # ───────────── Jenkins Configuration-as-Code ─────────────
   JCasC:
     enabled: true
     defaultConfig: false
