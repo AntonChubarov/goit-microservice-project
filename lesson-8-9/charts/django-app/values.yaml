@@ -1,8 +1,8 @@
 replicaCount: 2
 
 image:
-  repository: ""
-  tag: "latest"
+  repository: "public.ecr.aws/docker/library/python"
+  tag: "3.12-alpine"
 
 containerPort: 8000
 readinessPath: /db-check

@@ -12,50 +12,59 @@ terraform {
     }
     helm = {
       source  = "hashicorp/helm"
-      # Keep this constraint, but your locally installed version may be older.
-      # The config below works for both styles that expect `kubernetes` as an argument.
       version = ">= 2.13.2"
     }
   }
 }
 
-# Get EKS connection details from the created cluster
+# Pull connection details from the freshly-created EKS cluster
 data "aws_eks_cluster" "eks" {
   name       = module.eks.cluster_name
   depends_on = [module.eks]
 }
 
-data "aws_eks_cluster_auth" "eks" {
-  name       = module.eks.cluster_name
-  depends_on = [module.eks]
-}
-
 #############################################
-# DEFAULT providers (unaliased)
+# Provider: Kubernetes (default)
 #############################################
 provider "kubernetes" {
   host                   = data.aws_eks_cluster.eks.endpoint
   cluster_ca_certificate = base64decode(data.aws_eks_cluster.eks.certificate_authority[0].data)
-  token                  = data.aws_eks_cluster_auth.eks.token
-}
 
-provider "helm" {
-  kubernetes = {
-    host                   = data.aws_eks_cluster.eks.endpoint
-    cluster_ca_certificate = base64decode(data.aws_eks_cluster.eks.certificate_authority[0].data)
-    token                  = data.aws_eks_cluster_auth.eks.token
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", data.aws_eks_cluster.eks.name]
   }
 }
 
 #############################################
-# Aliased providers – passed to modules:
-#   providers = { kubernetes = kubernetes.eks, helm = helm.eks }
+# Provider: Helm (default)
+#############################################
+provider "helm" {
+  kubernetes = {
+    host                   = data.aws_eks_cluster.eks.endpoint
+    cluster_ca_certificate = base64decode(data.aws_eks_cluster.eks.certificate_authority[0].data)
+    exec = {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = ["eks", "get-token", "--cluster-name", data.aws_eks_cluster.eks.name]
+    }
+  }
+}
+
+#############################################
+# Aliased providers – passed into modules
 #############################################
 provider "kubernetes" {
   alias                  = "eks"
   host                   = data.aws_eks_cluster.eks.endpoint
   cluster_ca_certificate = base64decode(data.aws_eks_cluster.eks.certificate_authority[0].data)
-  token                  = data.aws_eks_cluster_auth.eks.token
+
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", data.aws_eks_cluster.eks.name]
+  }
 }
 
 provider "helm" {
@@ -63,6 +72,10 @@ provider "helm" {
   kubernetes = {
     host                   = data.aws_eks_cluster.eks.endpoint
     cluster_ca_certificate = base64decode(data.aws_eks_cluster.eks.certificate_authority[0].data)
-    token                  = data.aws_eks_cluster_auth.eks.token
+    exec = {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = ["eks", "get-token", "--cluster-name", data.aws_eks_cluster.eks.name]
+    }
   }
 }
