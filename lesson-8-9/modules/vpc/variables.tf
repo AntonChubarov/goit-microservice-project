@@ -17,3 +17,8 @@ variable "availability_zones" {
 variable "vpc_name" {
   type = string
 }
+
+variable "enable_nat_gateway" {
+  type        = bool
+  default     = true
+}
