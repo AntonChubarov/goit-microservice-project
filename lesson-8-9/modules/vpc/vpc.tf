@@ -33,7 +33,7 @@ resource "aws_subnet" "private" {
 
 resource "aws_eip" "nat" {
   domain = "vpc"
-  tags   = {
+  tags = {
     Name = "${var.vpc_name}-nat-eip"
   }
 }
@@ -41,5 +41,7 @@ resource "aws_eip" "nat" {
 resource "aws_nat_gateway" "this" {
   allocation_id = aws_eip.nat.id
   subnet_id     = aws_subnet.public[var.public_subnets[0]].id
-  depends_on    = [aws_internet_gateway.this]
+  # NOTE: removed explicit depends_on = [aws_internet_gateway.this]
+  # The NAT GW does not need the IGW for deletion; removing this avoids
+  # forcing the IGW to wait on slow NAT teardown.
 }
