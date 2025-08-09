@@ -2,7 +2,9 @@ installCRDs: true
 
 global:
   image:
-    tag: ""
+    repository: "quay.io/argoproj/argocd"
+    tag: "v2.11.3"
+    imagePullPolicy: IfNotPresent
 
 server:
   insecure: true

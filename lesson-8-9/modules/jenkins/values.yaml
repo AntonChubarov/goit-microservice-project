@@ -1,7 +1,8 @@
 controller:
-  image:
-    repository: jenkins/jenkins
-    tag: "2.466.1-lts-jdk17"
+  image: "jenkins/jenkins"   # official image repo
+  tag: "lts-jdk17"           # latest LTS; leave blank later if you want weekly
+  imagePullPolicy: "IfNotPresent"
+
   numExecutors: 0
 
   admin:

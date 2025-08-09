@@ -60,22 +60,13 @@ resource "kubernetes_storage_class_v1" "ebs_sc" {
 }
 
 resource "helm_release" "jenkins" {
-  name             = "jenkins"
-  repository       = "https://charts.jenkins.io"
-  chart            = "jenkins"
-  version          = var.chart_version
-  namespace        = var.namespace
-  create_namespace = true
+  name       = "jenkins"
+  repository = "https://charts.jenkins.io"
+  chart      = "jenkins"
 
-  timeout = 1800
-
-  cleanup_on_fail = true
-  wait_for_jobs   = true
+  timeout = 1800  # seconds (30 min)
 
   values = [file("${path.module}/values.yaml")]
 
-  depends_on = [
-    kubernetes_service_account.jenkins_sa,
-    kubernetes_storage_class_v1.ebs_sc
-  ]
+  cleanup_on_fail = true
 }
