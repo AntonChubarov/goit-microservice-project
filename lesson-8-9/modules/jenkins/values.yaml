@@ -1,7 +1,9 @@
 controller:
-  image: "jenkins/jenkins"   # official image repo
-  tag: "lts-jdk17"           # latest LTS; leave blank later if you want weekly
-  imagePullPolicy: "IfNotPresent"
+  image:
+    registry: docker.io
+    repository: jenkins/jenkins
+    tag: lts-jdk17
+    pullPolicy: IfNotPresent
 
   numExecutors: 0
 
@@ -11,28 +13,35 @@ controller:
 
   serviceType: LoadBalancer
 
+  # Give Jenkins more room and a predictable heap
   resources:
     requests:
-      cpu: "200m"
-      memory: "1Gi"
+      cpu: "500m"
+      memory: "2Gi"
     limits:
       cpu: "2"
-      memory: "2Gi"
+      memory: "4Gi"
 
-  # ────── startupProbe tuned for very first boot ──────
+  # Skip setup wizard + set sane heap/GC so boot doesn't thrash
+  javaOpts: "-Djenkins.install.runSetupWizard=false -Xms512m -Xmx2048m -XX:+UseG1GC -XX:MaxMetaspaceSize=512m"
+
+  # ────── startupProbe tuned for first boot ──────
   startupProbe:
     httpGet:
       path: /login
       port: http
+    initialDelaySeconds: 60     # give WAR unpack/JCasC a head start
     periodSeconds: 10
     timeoutSeconds: 5
-    failureThreshold: 120    # 20 min (was 10 min)
+    failureThreshold: 180       # ~30 minutes max; usually ready in 3–8 min
 
+  # Keep your PVC (verify the storage class exists)
   persistentVolume:
     enabled: true
     storageClass: "ebs-sc"
     size: 10Gi
 
+  # Keep your plugins (note: first boot downloads can be slow)
   installPlugins:
     - kubernetes
     - workflow-aggregator
