@@ -54,19 +54,25 @@ resource "kubernetes_storage_class_v1" "ebs_sc" {
   reclaim_policy      = "Delete"
   volume_binding_mode = "WaitForFirstConsumer"
   parameters = {
-    type = "gp3"
+    type  = "gp3"
     fsType = "ext4"
   }
 }
 
 resource "helm_release" "jenkins" {
-  name       = "jenkins"
-  repository = "https://charts.jenkins.io"
-  chart      = "jenkins"
+  name             = "jenkins"
+  repository       = "https://charts.jenkins.io"
+  chart            = "jenkins"
+  namespace        = var.namespace
+  create_namespace = false
 
-  timeout = 1800  # seconds (30 min)
+  timeout = 1800
 
   values = [file("${path.module}/values.yaml")]
-
   cleanup_on_fail = true
+
+  depends_on = [
+    kubernetes_service_account.jenkins_sa,
+    kubernetes_storage_class_v1.ebs_sc
+  ]
 }

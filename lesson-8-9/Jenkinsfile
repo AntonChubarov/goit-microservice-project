@@ -29,6 +29,11 @@ spec:
       volumeMounts:
         - name: docker-config
           mountPath: /kaniko/.docker
+    - name: git
+      image: alpine/git:2.45.2
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c"]
+      args: ["sleep 99d"]
 """
     }
   }
@@ -40,6 +45,7 @@ spec:
     CHART_FILE   = "lesson-8-9/charts/django-app/values.yaml"
     DOCKERFILE   = "Dockerfile"
     CONTEXT_DIR  = "."
+    // Keep this in sync with Argo CD's targetRevision
     GIT_BRANCH   = "lesson-8-9"
     GIT_REPO_URL = "https://github.com/AntonChubarov/goit-microservice-project.git"
   }
@@ -83,21 +89,25 @@ spec:
 
     stage('Update Helm values and Push to Git') {
       steps {
-        sh '''
-          set -eu
-          sed -i "s|^\\s*repository:.*|  repository: \\\"${ECR_REGISTRY}/${IMAGE_NAME}\\\"|" "${CHART_FILE}"
-          sed -i "s|^\\s*tag:.*|  tag: \\\"${IMAGE_TAG}\\\"|" "${CHART_FILE}"
-          git config user.email "ci@example.com"
-          git config user.name "ci"
-          git add "${CHART_FILE}"
-          git commit -m "ci: image ${IMAGE_TAG}" || echo "No changes to commit"
-        '''
-        withCredentials([usernamePassword(credentialsId: 'github-token', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PAT')]) {
-          sh '''
-            set -eu
-            git remote set-url origin "https://${GIT_USER}:${GIT_PAT}@github.com/AntonChubarov/goit-microservice-project.git"
-            git push origin HEAD:${GIT_BRANCH}
-          '''
+        container('git') {
+          withCredentials([usernamePassword(credentialsId: 'github-token', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PAT')]) {
+            sh '''
+              set -eu
+              git fetch origin "${GIT_BRANCH}"
+              git checkout "${GIT_BRANCH}"
+
+              sed -i"" -e "s|^\\s*repository:.*|  repository: \\\"${ECR_REGISTRY}/${IMAGE_NAME}\\\"|" "${CHART_FILE}"
+              sed -i"" -e "s|^\\s*tag:.*|  tag: \\\"${IMAGE_TAG}\\\"|" "${CHART_FILE}"
+
+              git config user.email "ci@example.com"
+              git config user.name "ci"
+              git add "${CHART_FILE}"
+              git commit -m "ci: image ${IMAGE_TAG}" || echo "No changes to commit"
+
+              git remote set-url origin "https://${GIT_USER}:${GIT_PAT}@github.com/AntonChubarov/goit-microservice-project.git"
+              git push origin HEAD:${GIT_BRANCH}
+            '''
+          }
         }
       }
     }

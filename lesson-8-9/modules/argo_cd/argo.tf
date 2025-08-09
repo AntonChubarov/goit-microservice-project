@@ -51,7 +51,7 @@ resource "helm_release" "django_app" {
           namespace = "default"
         }
         syncPolicy = {
-          automated  = { prune = true, selfHeal = true }
+          automated   = { prune = true, selfHeal = true }
           syncOptions = ["CreateNamespace=true"]
         }
       }]

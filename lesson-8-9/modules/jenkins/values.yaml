@@ -6,14 +6,12 @@ controller:
     pullPolicy: IfNotPresent
 
   numExecutors: 0
-
   admin:
     username: admin
     password: admin123
 
   serviceType: LoadBalancer
 
-  # Give Jenkins more room and a predictable heap
   resources:
     requests:
       cpu: "500m"
@@ -22,26 +20,22 @@ controller:
       cpu: "2"
       memory: "4Gi"
 
-  # Skip setup wizard + set sane heap/GC so boot doesn't thrash
   javaOpts: "-Djenkins.install.runSetupWizard=false -Xms512m -Xmx2048m -XX:+UseG1GC -XX:MaxMetaspaceSize=512m"
 
-  # ────── startupProbe tuned for first boot ──────
   startupProbe:
     httpGet:
       path: /login
       port: http
-    initialDelaySeconds: 60     # give WAR unpack/JCasC a head start
+    initialDelaySeconds: 60
     periodSeconds: 10
     timeoutSeconds: 5
-    failureThreshold: 180       # ~30 minutes max; usually ready in 3–8 min
+    failureThreshold: 180
 
-  # Keep your PVC (verify the storage class exists)
   persistentVolume:
     enabled: true
     storageClass: "ebs-sc"
     size: 10Gi
 
-  # Keep your plugins (note: first boot downloads can be slow)
   installPlugins:
     - kubernetes
     - workflow-aggregator
@@ -51,6 +45,7 @@ controller:
     - github
     - docker-workflow
     - job-dsl
+    - kubernetes-credentials-provider
 
   serviceAccount:
     name: jenkins-sa
@@ -71,15 +66,7 @@ controller:
                 jenkinsUrl: "http://jenkins.jenkins.svc.cluster.local:8080"
                 containerCapStr: "10"
                 templates: []
-        credentials:
-          system:
-            domainCredentials:
-              - credentials:
-                  - usernamePassword:
-                      id: "github-token"
-                      username: "gh"
-                      password: "changeme"
-                      description: "GitHub PAT"
+        # Credentials are sourced from Kubernetes Secrets via kubernetes-credentials-provider
         jobs:
           - script: >
               pipelineJob('lesson-8-9') {
@@ -94,5 +81,6 @@ controller:
                     scriptPath('Jenkinsfile')
                   }
                 }
+                // Poll Git every 5 minutes (or push webhooks if you want later)
                 triggers { scm('H/5 * * * *') }
               }
