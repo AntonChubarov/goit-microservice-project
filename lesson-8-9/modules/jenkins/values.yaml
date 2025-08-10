@@ -6,6 +6,7 @@ controller:
     pullPolicy: IfNotPresent
 
   numExecutors: 0
+
   admin:
     username: admin
     password: admin123
@@ -20,15 +21,29 @@ controller:
       cpu: "2"
       memory: "4Gi"
 
-  javaOpts: "-Djenkins.install.runSetupWizard=false -Xms512m -Xmx2048m -XX:+UseG1GC -XX:MaxMetaspaceSize=512m"
+  javaOpts: >-
+    -Djenkins.install.runSetupWizard=false
+    -Xms512m -Xmx2048m
+    -XX:+UseG1GC -XX:MaxMetaspaceSize=512m
 
-  startupProbe:
+  # NOTE: no startupProbe here on purpose. Jenkins returns 503 on /login while warming up.
+  # Keep liveness/readiness but give Jenkins plenty of time on first boot.
+  livenessProbe:
     httpGet:
       path: /login
       port: http
-    initialDelaySeconds: 60
+    initialDelaySeconds: 240
     periodSeconds: 10
-    timeoutSeconds: 5
+    timeoutSeconds: 10
+    failureThreshold: 90
+
+  readinessProbe:
+    httpGet:
+      path: /login
+      port: http
+    initialDelaySeconds: 90
+    periodSeconds: 10
+    timeoutSeconds: 10
     failureThreshold: 180
 
   persistentVolume:
@@ -36,15 +51,13 @@ controller:
     storageClass: "ebs-sc"
     size: 10Gi
 
+  # Keep only the essentials so Jenkins boots faster.
   installPlugins:
     - kubernetes
     - workflow-aggregator
     - git
     - configuration-as-code
     - credentials-binding
-    - github
-    - docker-workflow
-    - job-dsl
     - kubernetes-credentials-provider
 
   serviceAccount:
@@ -66,7 +79,6 @@ controller:
                 jenkinsUrl: "http://jenkins.jenkins.svc.cluster.local:8080"
                 containerCapStr: "10"
                 templates: []
-        # Credentials are sourced from Kubernetes Secrets via kubernetes-credentials-provider
         jobs:
           - script: >
               pipelineJob('lesson-8-9') {
@@ -81,6 +93,5 @@ controller:
                     scriptPath('Jenkinsfile')
                   }
                 }
-                // Poll Git every 5 minutes (or push webhooks if you want later)
                 triggers { scm('H/5 * * * *') }
               }
