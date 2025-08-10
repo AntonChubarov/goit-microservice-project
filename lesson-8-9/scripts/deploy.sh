@@ -43,6 +43,15 @@ for ns in "$JENKINS_NS" "$ARGOCD_NS"; do
   done
 done
 
+# --- Wait for AWS EBS CSI node driver so PVCs can bind cleanly ---
+echo "⏳ Waiting for EBS CSI node driver to be Ready (DaemonSet ebs-csi-node)..."
+if ! kubectl -n kube-system rollout status ds/ebs-csi-node --timeout=6m; then
+  echo "⚠️  EBS CSI node driver did not become Ready in time. Diagnostics:"
+  kubectl -n kube-system get pods -l app.kubernetes.io/name=aws-ebs-csi-driver -o wide || true
+  kubectl -n kube-system describe ds/ebs-csi-node || true
+  # Do not hard-fail here; often it catches up in a minute. Jenkins may still start if PVC binds later.
+fi
+
 # --- Jenkins GitHub credential (k8s secret, consumed by credentials-provider) ---
 cat <<EOF | kubectl -n "$JENKINS_NS" apply -f -
 apiVersion: v1

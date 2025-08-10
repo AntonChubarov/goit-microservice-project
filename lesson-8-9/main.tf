@@ -29,6 +29,8 @@ module "eks" {
   cluster_name       = "lesson-8-9-eks"
   kubernetes_version = "1.29"
   subnet_ids         = module.vpc.public_subnet_ids
+  # Added: give us more headroom than t3.medium
+  instance_types     = ["t3.large"]
 }
 
 module "rds" {

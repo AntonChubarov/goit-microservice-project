@@ -15,18 +15,19 @@ controller:
 
   resources:
     requests:
-      cpu: "500m"
-      memory: "2Gi"
+      cpu: "300m"
+      memory: "1Gi"
     limits:
-      cpu: "2"
-      memory: "4Gi"
+      cpu: "1"
+      memory: "2Gi"
 
+  # Smaller, safer heap for t3.medium/t3.large nodes
   javaOpts: >-
     -Djenkins.install.runSetupWizard=false
-    -Xms512m -Xmx2048m
-    -XX:+UseG1GC -XX:MaxMetaspaceSize=512m
+    -Xms256m -Xmx1024m
+    -XX:+UseG1GC -XX:MaxMetaspaceSize=256m
 
-  # Be generous during first boot so Helm doesn't flap on probes
+  # Probes kept generous for first boot (plugins, JCasC)
   startupProbe:
     httpGet:
       path: /login
@@ -59,7 +60,7 @@ controller:
     storageClass: "ebs-sc"
     size: 10Gi
 
-  # Keep only the essentials so Jenkins boots faster.
+  # Keep only essentials so first boot is faster
   installPlugins:
     - kubernetes
     - workflow-aggregator
