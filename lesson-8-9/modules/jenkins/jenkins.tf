@@ -63,10 +63,13 @@ resource "helm_release" "jenkins" {
   name             = "jenkins"
   repository       = "https://charts.jenkins.io"
   chart            = "jenkins"
+  version          = var.chart_version
   namespace        = var.namespace
   create_namespace = false
 
-  timeout = 1800
+  # Jenkins can take a while to warm up; don't block Terraform on readiness
+  wait     = false
+  timeout  = 1800
 
   values = [file("${path.module}/values.yaml")]
   cleanup_on_fail = true

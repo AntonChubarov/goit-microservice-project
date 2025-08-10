@@ -53,6 +53,9 @@ module "jenkins" {
     kubernetes = kubernetes.eks
     helm       = helm.eks
   }
+
+  # Ensure storage driver is installed before Jenkins PVC is created
+  depends_on = [helm_release.aws_ebs_csi_driver]
 }
 
 module "argo_cd" {

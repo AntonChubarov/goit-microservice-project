@@ -26,8 +26,16 @@ controller:
     -Xms512m -Xmx2048m
     -XX:+UseG1GC -XX:MaxMetaspaceSize=512m
 
-  # NOTE: no startupProbe here on purpose. Jenkins returns 503 on /login while warming up.
-  # Keep liveness/readiness but give Jenkins plenty of time on first boot.
+  # Be generous during first boot so Helm doesn't flap on probes
+  startupProbe:
+    httpGet:
+      path: /login
+      port: http
+    initialDelaySeconds: 120
+    periodSeconds: 10
+    timeoutSeconds: 10
+    failureThreshold: 180
+
   livenessProbe:
     httpGet:
       path: /login
