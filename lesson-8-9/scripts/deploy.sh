@@ -43,6 +43,24 @@ for ns in "$JENKINS_NS" "$ARGOCD_NS"; do
   done
 done
 
+# --- Adjust AWS EBS CSI node probes to avoid early readiness flaps ---
+echo "⏳ Adjusting EBS CSI node probes to avoid early readiness flaps..."
+kubectl -n kube-system patch ds ebs-csi-node --type=strategic -p '{
+  "spec": {
+    "template": {
+      "spec": {
+        "containers": [
+          {
+            "name": "ebs-plugin",
+            "livenessProbe":  {"initialDelaySeconds": 30, "periodSeconds": 10, "timeoutSeconds": 5, "failureThreshold": 5},
+            "readinessProbe": {"initialDelaySeconds": 30, "periodSeconds": 10, "timeoutSeconds": 5, "failureThreshold": 5}
+          }
+        ]
+      }
+    }
+  }
+}' >/dev/null 2>&1 || true
+
 # --- Wait for AWS EBS CSI node driver so PVCs can bind cleanly ---
 echo "⏳ Waiting for EBS CSI node driver to be Ready (DaemonSet ebs-csi-node)..."
 if ! kubectl -n kube-system rollout status ds/ebs-csi-node --timeout=6m; then

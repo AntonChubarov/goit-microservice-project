@@ -5,6 +5,7 @@ controller:
     tag: lts-jdk17
     pullPolicy: IfNotPresent
 
+  # Jenkins controller runs builds on K8s agents; keep 0 executors here
   numExecutors: 0
 
   admin:
@@ -13,6 +14,7 @@ controller:
 
   serviceType: LoadBalancer
 
+  # *** Right-size resources for small nodes ***
   resources:
     requests:
       cpu: "300m"
@@ -21,46 +23,47 @@ controller:
       cpu: "1"
       memory: "2Gi"
 
-  # Smaller, safer heap for t3.medium/t3.large nodes
+  # *** Init container ALSO needs to be lighter ***
+  initContainerResources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+
+  # *** Smaller heap, faster boot; avoid OOM on t3.medium ***
   javaOpts: >-
     -Djenkins.install.runSetupWizard=false
     -Xms256m -Xmx1024m
     -XX:+UseG1GC -XX:MaxMetaspaceSize=256m
 
-  # Probes kept generous for first boot (plugins, JCasC)
+  # Probes relaxed for first boot (plugins+JCasC)
   startupProbe:
-    httpGet:
-      path: /login
-      port: http
+    httpGet: { path: /login, port: http }
     initialDelaySeconds: 120
     periodSeconds: 10
     timeoutSeconds: 10
     failureThreshold: 180
-
-  livenessProbe:
-    httpGet:
-      path: /login
-      port: http
-    initialDelaySeconds: 240
-    periodSeconds: 10
-    timeoutSeconds: 10
-    failureThreshold: 90
-
   readinessProbe:
-    httpGet:
-      path: /login
-      port: http
+    httpGet: { path: /login, port: http }
     initialDelaySeconds: 90
     periodSeconds: 10
     timeoutSeconds: 10
     failureThreshold: 180
+  livenessProbe:
+    httpGet: { path: /login, port: http }
+    initialDelaySeconds: 240
+    periodSeconds: 10
+    timeoutSeconds: 10
+    failureThreshold: 90
 
   persistentVolume:
     enabled: true
     storageClass: "ebs-sc"
     size: 10Gi
 
-  # Keep only essentials so first boot is faster
+  # Keep plugin set lean for faster stabilization
   installPlugins:
     - kubernetes
     - workflow-aggregator
