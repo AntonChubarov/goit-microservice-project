@@ -14,7 +14,7 @@ controller:
 
   serviceType: LoadBalancer
 
-  # *** Right-size resources for small nodes ***
+  # Right-size resources
   resources:
     requests:
       cpu: "300m"
@@ -23,7 +23,7 @@ controller:
       cpu: "1"
       memory: "2Gi"
 
-  # *** Init container ALSO needs to be lighter ***
+  # Init container resources template used by chart
   initContainerResources:
     requests:
       cpu: "200m"
@@ -32,13 +32,13 @@ controller:
       cpu: "500m"
       memory: "1Gi"
 
-  # *** Smaller heap, faster boot; avoid OOM on t3.medium ***
+  # Smaller heap
   javaOpts: >-
     -Djenkins.install.runSetupWizard=false
     -Xms256m -Xmx1024m
     -XX:+UseG1GC -XX:MaxMetaspaceSize=256m
 
-  # Probes relaxed for first boot (plugins+JCasC)
+  # Give first boot time for plugin install + JCasC
   startupProbe:
     httpGet: { path: /login, port: http }
     initialDelaySeconds: 120
@@ -62,6 +62,19 @@ controller:
     enabled: true
     storageClass: "ebs-sc"
     size: 10Gi
+
+  # IMPORTANT: force fresh, compatible plugins on every boot
+  overwritePlugins: true
+  installLatestPlugins: true
+
+  # Nuke any stale .jpi from the PVC before Jenkins starts
+  initContainers:
+    - name: wipe-plugins
+      image: busybox:1.36
+      command: ['sh','-c','rm -rf /var/jenkins_home/plugins/* || true']
+      volumeMounts:
+        - name: jenkins-home
+          mountPath: /var/jenkins_home
 
   # Keep plugin set lean for faster stabilization
   installPlugins:
