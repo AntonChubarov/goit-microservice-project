@@ -1,11 +1,9 @@
 controller:
   image:
-    registry: docker.io
+    # IMPORTANT: do NOT override the tag; let the chart default decide the core version
     repository: jenkins/jenkins
-    tag: lts-jdk17
-    pullPolicy: IfNotPresent
+    # tag: (removed on purpose)
 
-  # Jenkins controller runs builds on K8s agents; keep 0 executors here
   numExecutors: 0
 
   admin:
@@ -14,7 +12,6 @@ controller:
 
   serviceType: LoadBalancer
 
-  # Right-size resources
   resources:
     requests:
       cpu: "300m"
@@ -23,22 +20,12 @@ controller:
       cpu: "1"
       memory: "2Gi"
 
-  # Init container resources template used by chart
-  initContainerResources:
-    requests:
-      cpu: "200m"
-      memory: "512Mi"
-    limits:
-      cpu: "500m"
-      memory: "1Gi"
-
-  # Smaller heap
   javaOpts: >-
     -Djenkins.install.runSetupWizard=false
     -Xms256m -Xmx1024m
     -XX:+UseG1GC -XX:MaxMetaspaceSize=256m
 
-  # Give first boot time for plugin install + JCasC
+  # Keep probes; issue is plugins/JCasC, not timing, but these are reasonable
   startupProbe:
     httpGet: { path: /login, port: http }
     initialDelaySeconds: 120
@@ -63,27 +50,20 @@ controller:
     storageClass: "ebs-sc"
     size: 10Gi
 
-  # IMPORTANT: force fresh, compatible plugins on every boot
+  # Let Helm/Jenkins manage compatible plugins; overwrite stale ones if present
   overwritePlugins: true
-  installLatestPlugins: true
 
-  # Nuke any stale .jpi from the PVC before Jenkins starts
-  initContainers:
-    - name: wipe-plugins
-      image: busybox:1.36
-      command: ['sh','-c','rm -rf /var/jenkins_home/plugins/* || true']
-      volumeMounts:
-        - name: jenkins-home
-          mountPath: /var/jenkins_home
-
-  # Keep plugin set lean for faster stabilization
+  # EXPLICIT plugin versions as requested
   installPlugins:
-    - kubernetes
-    - workflow-aggregator
-    - git
-    - configuration-as-code
-    - credentials-binding
-    - kubernetes-credentials-provider
+    - kubernetes:latest
+    - workflow-aggregator:latest
+    - git:latest
+    - configuration-as-code:latest
+    - credentials-binding:latest
+    - github:latest
+    - docker-plugin:latest
+    - docker-workflow:latest
+    - job-dsl:latest
 
   serviceAccount:
     name: jenkins-sa

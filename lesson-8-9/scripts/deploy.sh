@@ -4,6 +4,7 @@ set -eu
 # --- Resolve paths ---
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TF_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 JENKINS_NS="${JENKINS_NS:-jenkins}"
 ARGOCD_NS="${ARGOCD_NS:-argocd}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
@@ -25,137 +26,82 @@ if [ -z "${GITHUB_TOKEN:-}" ]; then
   printf "\n"
 fi
 
+export GITHUB_USERNAME GITHUB_TOKEN
+
 # --- Terraform apply ---
 terraform -chdir="$TF_DIR" init -upgrade
 terraform -chdir="$TF_DIR" apply -auto-approve
 
-# --- Outputs ---
-CLUSTER_NAME="$(terraform -chdir="$TF_DIR" output -raw eks_cluster_name)"
-aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION" >/dev/null
+# --- Update kubeconfig for the created/updated cluster ---
+if command -v aws >/dev/null 2>&1; then
+  EKS_CLUSTER_NAME="$(terraform -chdir="$TF_DIR" output -raw eks_cluster_name)"
+  aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME" >/dev/null
+fi
 
-# --- Ensure namespaces exist ---
-for ns in "$JENKINS_NS" "$ARGOCD_NS"; do
-  i=0
-  until kubectl get ns "$ns" >/dev/null 2>&1; do
-    i=$((i+1))
-    [ "$i" -gt 36 ] && { echo "ERROR: namespace '$ns' not found."; exit 1; }
-    sleep 5
+# --- Helper: print service URL once LB is up ---
+print_svc_url () {
+  _ns="$1"; _svc="$2"
+  echo "Waiting for LoadBalancer for ${_svc} in ${_ns} ..."
+  SECS=0
+  while [ $SECS -lt "$LB_WAIT_SECS" ]; do
+    if EXTERNAL_HOST="$(kubectl -n "$_ns" get svc "$_svc" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)"; then
+      if [ -n "${EXTERNAL_HOST:-}" ] && [ "$EXTERNAL_HOST" != "<pending>" ]; then
+        echo "https://${EXTERNAL_HOST}"
+        return 0
+      fi
+    fi
+    SECS=$((SECS + LB_POLL_SECS))
+    sleep "$LB_POLL_SECS"
   done
-done
-
-# --- Adjust AWS EBS CSI node probes to avoid early readiness flaps ---
-echo "⏳ Adjusting EBS CSI node probes to avoid early readiness flaps..."
-kubectl -n kube-system patch ds ebs-csi-node --type=strategic -p '{
-  "spec": {
-    "template": {
-      "spec": {
-        "containers": [
-          {
-            "name": "ebs-plugin",
-            "livenessProbe":  {"initialDelaySeconds": 30, "periodSeconds": 10, "timeoutSeconds": 5, "failureThreshold": 5},
-            "readinessProbe": {"initialDelaySeconds": 30, "periodSeconds": 10, "timeoutSeconds": 5, "failureThreshold": 5}
-          }
-        ]
-      }
-    }
-  }
-}' >/dev/null 2>&1 || true
-
-# --- Wait for AWS EBS CSI node driver so PVCs can bind cleanly ---
-echo "⏳ Waiting for EBS CSI node driver to be Ready (DaemonSet ebs-csi-node)..."
-if ! kubectl -n kube-system rollout status ds/ebs-csi-node --timeout=6m; then
-  echo "⚠️  EBS CSI node driver did not become Ready in time. Diagnostics:"
-  kubectl -n kube-system get pods -l app.kubernetes.io/name=aws-ebs-csi-driver -o wide || true
-  kubectl -n kube-system describe ds/ebs-csi-node || true
-  # Do not hard-fail here; often it catches up in a minute. Jenkins may still start if PVC binds later.
-fi
-
-# --- Jenkins GitHub credential (k8s secret, consumed by credentials-provider) ---
-cat <<EOF | kubectl -n "$JENKINS_NS" apply -f -
-apiVersion: v1
-kind: Secret
-metadata:
-  name: jenkins-github-token
-  labels:
-    jenkins.io/credentials-type: "usernamePassword"
-  annotations:
-    jenkins.io/credentials-description: "GitHub PAT for pushes"
-    jenkins.io/credentials-id: "github-token"
-type: kubernetes.io/basic-auth
-stringData:
-  username: "$GITHUB_USERNAME"
-  password: "$GITHUB_TOKEN"
-EOF
-
-# --- Quick egress check (plugin downloads need outbound internet) ---
-cat <<'EOF' | kubectl apply -f - >/dev/null
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: egress-check
-  namespace: default
-spec:
-  template:
-    spec:
-      restartPolicy: Never
-      containers:
-        - name: curl
-          image: curlimages/curl:8.11.1
-          command: ["/bin/sh","-lc"]
-          args:
-            - |
-              echo "Checking https://updates.jenkins.io ..."
-              if curl -sS --max-time 20 https://updates.jenkins.io/update-center.json >/dev/null; then
-                echo "EGRESS_OK"
-                exit 0
-              else
-                echo "EGRESS_FAIL"
-                exit 1
-              fi
-  backoffLimit: 0
-EOF
-
-echo "⏳ Waiting for egress-check..."
-if kubectl -n default wait --for=condition=complete job/egress-check --timeout=60s >/dev/null 2>&1; then
-  :
-else
-  echo "⚠️  Egress check did not complete; fetching logs:"
-fi
-kubectl -n default logs job/egress-check || true
-kubectl -n default delete job egress-check --ignore-not-found >/dev/null 2>&1 || true
-
-echo "⏳ Waiting for LoadBalancer addresses (up to ${LB_WAIT_SECS}s)..."
-get_svc_addr() {
-  ns="$1"; name="$2"
-  addr="$(kubectl -n "$ns" get svc "$name" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
-  [ -n "$addr" ] || addr="$(kubectl -n "$ns" get svc "$name" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
-  printf "%s" "${addr}"
+  echo "(LoadBalancer for ${_svc} not ready after ${LB_WAIT_SECS}s)"
+  return 1
 }
 
-ARGOCD_SVC="${ARGOCD_SVC:-argo-cd-argocd-server}"
-JENKINS_SVC="${JENKINS_SVC:-jenkins}"
+# --- Print URLs ---
+echo "\n== URLs =="
+echo "Jenkins: $(print_svc_url "$JENKINS_NS" jenkins || true)"
+echo "Argo CD: $(print_svc_url "$ARGOCD_NS" argocd-server || true)"
+echo "== End URLs ==\n"
 
-end_time=$(( $(date +%s) + LB_WAIT_SECS ))
-ARGOCD_ADDR=""; JENKINS_ADDR=""
-while [ "$(date +%s)" -lt "$end_time" ]; do
-  [ -n "$ARGOCD_ADDR" ] || ARGOCD_ADDR="$(get_svc_addr "$ARGOCD_NS" "$ARGOCD_SVC")"
-  [ -n "$JENKINS_ADDR" ] || JENKINS_ADDR="$(get_svc_addr "$JENKINS_NS" "$JENKINS_SVC")"
-  [ -n "$ARGOCD_ADDR" ] && [ -n "$JENKINS_ADDR" ] && break
-  sleep "$LB_POLL_SECS"
-done
+# --- New: Jenkins diagnostics (init container logs) ---
+say() { printf '%s\n' "$*"; }
 
-ARGOCD_URL=""; JENKINS_URL=""
-[ -n "$ARGOCD_ADDR" ] && ARGOCD_URL="http://${ARGOCD_ADDR}"
-[ -n "$JENKINS_ADDR" ] && JENKINS_URL="http://${JENKINS_ADDR}"
+find_jenkins_pod () {
+  # Try common selectors used by the official chart
+  kubectl -n "$JENKINS_NS" get pods -l app.kubernetes.io/component=jenkins-controller -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || \
+  kubectl -n "$JENKINS_NS" get pods -l app.kubernetes.io/instance=jenkins -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true
+}
 
-[ -n "$ARGOCD_URL" ] || ARGOCD_URL="$(terraform -chdir="$TF_DIR" output -raw argocd_url 2>/dev/null || true)"
-[ -n "$JENKINS_URL" ] || JENKINS_URL="$(terraform -chdir="$TF_DIR" output -raw jenkins_url 2>/dev/null || true)"
+dump_jenkins_init_logs () {
+  POD="$(find_jenkins_pod)"
+  if [ -z "${POD:-}" ]; then
+    say "Jenkins pod not found in namespace ${JENKINS_NS}"
+    return 0
+  fi
 
-echo "✅ Deploy complete."
-echo "   - EKS cluster: $CLUSTER_NAME ($AWS_REGION)"
-echo "   - Jenkins credential 'github-token' created in '$JENKINS_NS'."
-[ -n "$JENKINS_URL" ] && echo "🧰 Jenkins UI:     $JENKINS_URL" || echo "🧰 Jenkins UI:     (pending — LoadBalancer not ready yet)"
-[ -n "$ARGOCD_URL" ] && echo "🌐 Argo CD UI:     $ARGOCD_URL" || echo "🌐 Argo CD UI:     (pending — LoadBalancer not ready yet)"
+  say "\n== Jenkins pod: ${POD} =="
+  kubectl -n "$JENKINS_NS" get pod "$POD" -o wide || true
 
-echo "ℹ️  If Jenkins still shows 503 for a while, that's normal during first boot."
-echo "    It should stabilize once plugins and JCasC load."
+  INIT_LIST="$(kubectl -n "$JENKINS_NS" get pod "$POD" -o jsonpath='{.spec.initContainers[*].name}' 2>/dev/null || true)"
+  if [ -n "${INIT_LIST:-}" ]; then
+    say "\n== Init containers =="
+    for c in $INIT_LIST; do
+      say "\n--- logs (init container: $c) ---"
+      kubectl -n "$JENKINS_NS" logs "$POD" -c "$c" --tail=200 || true
+    done
+  else
+    say "No init containers reported."
+  fi
+
+  say "\n--- logs (main container: jenkins, last 300 lines) ---"
+  kubectl -n "$JENKINS_NS" logs "$POD" -c jenkins --tail=300 || true
+
+  say "\n--- describe pod (events) ---"
+  kubectl -n "$JENKINS_NS" describe pod "$POD" || true
+}
+
+# Give the pod a little time to appear, then always dump init logs to help debugging
+sleep 20
+dump_jenkins_init_logs
+
+echo "\nDeployment complete."
