@@ -1,100 +1,54 @@
-# Steps
+# CI/CD on AWS: Terraform · Jenkins · Argo CD · EKS
 
-!!! Make sure you have installed `Terraform` and `Helm` on your system.
+Spin up a full CI/CD stack (VPC, ECR, EKS, Jenkins, Argo CD) that builds & deploys a Django app.
 
-## Terraform
+---
 
-Ініціалізація Terraform:
+## Prerequisites
+- AWS account + CLI creds (`aws configure` or `AWS_PROFILE`).
+- Tools in PATH: `terraform`, `kubectl`, `helm`, `docker`, `git`, `aws`.
+- GitHub PAT with repo read/write to `AntonChubarov/goit-microservice-project`.
 
-```bash
-terraform init
+> **Security**: Treat your PAT like a password—do not commit it.
+
+---
+
+## Quick Start
+
+### 1) Deploy everything
+```shell
+GITHUB_USERNAME=AntonChubarov GITHUB_TOKEN=<YOUR_GITHUB_PAT> ./scripts/deploy.sh
 ```
+Outputs will include Jenkins & Argo CD URLs once LoadBalancers are ready.
 
-Перевірка змін:
-
-```bash
-terraform plan
+### 2) Show services URLs
+```shell
+sh ./scripts/show_urls.sh
 ```
+Prints Jenkins / Argo CD / Django endpoints.
 
-Застосування змін:
-
-```bash
-terraform apply
+### 3) Show admin credentials
+```shell
+sh ./scripts/show_passwords.sh
 ```
+- Jenkins: `admin / admin123` (unless changed)
+- Argo CD: `admin / <printed password>`
 
-Завантажити django image на новостворений ECR-репозиторій:
-
-```bash
-docker tag django_image:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:latest
-docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:latest
+### 4) Configure kubectl
+```shell
+sh ./scripts/aws_kubeconfig.sh
 ```
+Updates kubeconfig for the EKS cluster from Terraform outputs to access through kubectl, k9s, etc.
 
-where `django_image:latest` your django image name that already exists in your local machine.
-
-Replace $AWS_ACCOUNT_ID, $AWS_REGION, and $ECR_REPOSITORY with your own values.
-
-## Helm
-
-Застосування Helm:
-
-```bash
-cd charts/django-app
-helm install my-django .
+### 5) Destroy everything
+```shell
+sh ./scripts/destroy.sh
 ```
+Cleans up Helm releases, ELBs, and Terraform infra.
 
-where `my-django` is your helm chart name.
+---
 
-# Видалення ресурсів:
-
-Kubernetes (PODs, Services, Deployments etc.)
-```bash
-helm uninstall my-django
-```
-
-where `my-django` is your helm chart name.
-
-Terraform (EKS, VPC, ECR etc.)
-
-```bash
-terraform destroy
-```
-
-# Додаткова інформація:
-
-Якщо ви хочете оновити helm chart:
-
-```bash
-helm upgrade my-django .
-```
-
-Якщо ви хочете оновити terraform:
-
-```bash
-terraform init -upgrade
-terraform plan
-terraform apply
-```
-
-# Опис модулів terraform
-
-## s3-backend
-
-Модуль для створення S3-бакета для збереження стейтів.
-В модулі створюється S3-бакет, налаштовується версіонування та контроль власності.
-Також створюється DynamoDB-таблиця для блокування стейтів.
-
-## vpc
-
-Модуль для створення VPC.
-В модулі встановлена VPC, публічні підмережі, приватні підмережі та зони доступності.
-Також створюється NAT Gateway, Internet Gateway та таблиці роутів для доступу до інтернету.
-
-## ecr
-
-Модуль для створення ECR-репозиторію.
-В модулі створюється репозиторій ECR, налаштовується автоматичне сканування security-вразливостей під час push.
-
-## eks
-
-Модуль для створення EKS-кластера.
-В модулі створюється EKS-кластер, налаштовується автоматичне сканування security-вразливостей під час push.
+## Troubleshooting (quick)
+- **URL is (pending)**: wait 1–3 minutes; re-run `show_urls.sh`.
+- **Argo repo error**: ensure GitHub PAT & branch/path are correct.
+- **Jenkins pipeline not created**: give Jenkins a minute after first start; verify `github-token` credential exists.

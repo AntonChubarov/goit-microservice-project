@@ -8,9 +8,8 @@ set -eu
 # Assumptions:
 # - Default AWS profile is configured and has access to the cluster.
 # - Terraform outputs include 'eks_cluster_name'.
-# - Argo CD service name:    argocd-server (ns: argocd)           -> https
-# - Jenkins service name:    jenkins       (ns: jenkins)           -> http
-# - Django app service:      autodetected (prefers ns: default)    -> http
+# - Argo CD service may NOT be literally 'argocd-server' (chart templating varies).
+#   We auto-detect by labels and fall back to common names; also try Ingress.
 
 REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -30,6 +29,7 @@ fi
 # Helper: print service URL (scheme + hostname/ip) or "(pending)"
 svc_url() {
   ns="$1"; svc="$2"; scheme="$3"
+  # prefer hostname, then ip
   host="$(kubectl -n "$ns" get svc "$svc" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
   ip="$(kubectl -n "$ns" get svc "$svc" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
   if [ -n "${host}" ] && [ "${host}" != "<pending>" ]; then
@@ -41,13 +41,76 @@ svc_url() {
   fi
 }
 
-# Jenkins (http)
-JENKINS_URL="$(svc_url jenkins jenkins http)"
+# Helper: print ingress URL (scheme + hostname/ip or spec.rules host) or "(pending)"
+ing_url() {
+  ns="$1"; ing="$2"; scheme="$3"
+  host="$(kubectl -n "$ns" get ingress "$ing" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
+  ip="$(kubectl -n "$ns" get ingress "$ing" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
+  rule_host="$(kubectl -n "$ns" get ingress "$ing" -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || true)"
+  if [ -n "${host}" ] && [ "${host}" != "<pending>" ]; then
+    printf "%s://%s\n" "${scheme}" "${host}"
+  elif [ -n "${ip}" ]; then
+    printf "%s://%s\n" "${scheme}" "${ip}"
+  elif [ -n "${rule_host}" ]; then
+    printf "%s://%s\n" "${scheme}" "${rule_host}"
+  else
+    printf "(pending)\n"
+  fi
+}
 
-# Argo CD (https)
-ARGO_URL="$(svc_url argocd argocd-server https)"
+# ---------- Jenkins (http) ----------
+detect_jenkins_svc() {
+  ns="jenkins"
+  # Try label selector first
+  name="$(kubectl -n "$ns" get svc -l app.kubernetes.io/name=jenkins \
+          -o jsonpath='{.items[?(@.spec.type=="LoadBalancer")].metadata.name}' 2>/dev/null || true)"
+  if [ -n "$name" ]; then printf "%s" "$name"; return 0; fi
+  # Fallback to common name
+  if kubectl -n "$ns" get svc jenkins >/dev/null 2>&1; then printf "jenkins"; return 0; fi
+  printf ""
+}
+JENKINS_SVC="$(detect_jenkins_svc)"
+JENKINS_URL="$( [ -n "$JENKINS_SVC" ] && svc_url jenkins "$JENKINS_SVC" http || printf "(pending)\n" )"
 
-# Django app (http): try specific name first, then auto-detect in default ns, then any ns
+# ---------- Argo CD (https) ----------
+detect_argocd_svc() {
+  ns="argocd"
+  # Prefer the canonical label for the server component
+  name="$(kubectl -n "$ns" get svc -l app.kubernetes.io/name=argocd-server \
+          -o jsonpath='{.items[?(@.spec.type=="LoadBalancer")].metadata.name}' 2>/dev/null || true)"
+  if [ -n "$name" ]; then printf "%s" "$name"; return 0; fi
+  # Otherwise, any LB service that belongs to Argo CD
+  name="$(kubectl -n "$ns" get svc -l app.kubernetes.io/part-of=argocd \
+          -o jsonpath='{.items[?(@.spec.type=="LoadBalancer")].metadata.name}' 2>/dev/null || true)"
+  if [ -n "$name" ]; then printf "%s" "$name"; return 0; fi
+  # Fallback to common names
+  for n in argocd-server argo-cd-argocd-server argo-cd-server argocd; do
+    if kubectl -n "$ns" get svc "$n" >/dev/null 2>&1; then printf "%s" "$n"; return 0; fi
+  done
+  printf ""
+}
+
+ARGO_URL=""
+ARGO_SVC="$(detect_argocd_svc)"
+if [ -n "$ARGO_SVC" ]; then
+  ARGO_URL="$(svc_url argocd "$ARGO_SVC" https)"
+fi
+
+# If still pending/empty, try Ingress
+if [ -z "$ARGO_URL" ] || [ "$ARGO_URL" = "(pending)" ]; then
+  ing="$(kubectl -n argocd get ingress -l app.kubernetes.io/name=argocd-server \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  if [ -z "$ing" ]; then
+    ing="$(kubectl -n argocd get ingress -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  fi
+  if [ -n "$ing" ]; then
+    ARGO_URL="$(ing_url argocd "$ing" https)"
+  else
+    ARGO_URL="(pending)"
+  fi
+fi
+
+# ---------- Django app (http) ----------
 detect_django_url() {
   # 1) common service name in default namespace
   url="$(svc_url default django-app http)"
@@ -64,7 +127,6 @@ detect_django_url() {
   fi
 
   # 3) any LoadBalancer svc in any namespace, excluding argocd/jenkins/system namespaces
-  #    pick the first one and assume it's the app
   line="$(kubectl get svc -A -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null \
         | grep -Ev '^(kube-system|kube-public|kube-node-lease|argocd|jenkins) ' \
         | head -n1 || true)"
@@ -77,7 +139,6 @@ detect_django_url() {
 
   printf "(pending)\n"
 }
-
 DJANGO_URL="$(detect_django_url)"
 
 echo "================ Service URLs ================"

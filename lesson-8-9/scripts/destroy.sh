@@ -6,56 +6,94 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
-VPC_ID="$(terraform output -raw vpc_id || true)"
-EKS_CLUSTER_NAME="$(terraform output -raw eks_cluster_name || true)"
+need() { command -v "$1" >/dev/null 2>&1 || { echo "ERROR: '$1' not found" >&2; exit 1; }; }
+need terraform
+need aws
+need kubectl
+need helm
 
-# Try to auth to the cluster so kubectl deletions work
+echo "== Region: ${REGION} =="
+
+# ---- optional GitHub vars ----
+export TF_VAR_github_user="${TF_VAR_github_user:-dummy-user}"
+export TF_VAR_github_pat="${TF_VAR_github_pat:-dummy-token}"
+export TF_VAR_github_repo_url="${TF_VAR_github_repo_url:-https://example.invalid/dummy.git}"
+export TF_VAR_region="${TF_VAR_region:-$REGION}"
+
+echo "== Terraform init =="
+terraform -chdir="${ROOT_DIR}" init -upgrade
+
+# Try to discover EKS/VPC
+EKS_CLUSTER_NAME="$(terraform -chdir="${ROOT_DIR}" output -raw eks_cluster_name 2>/dev/null || true)"
 if [ -n "${EKS_CLUSTER_NAME}" ]; then
+  echo "== Updating kubeconfig for cluster: ${EKS_CLUSTER_NAME} =="
   aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --region "${REGION}" >/dev/null 2>&1 || true
+  VPC_ID="$(aws eks describe-cluster --name "${EKS_CLUSTER_NAME}" \
+      --query 'cluster.resourcesVpcConfig.vpcId' --output text 2>/dev/null || true)"
+else
+  VPC_ID=""
+  echo "WARN: Could not read 'eks_cluster_name' from Terraform outputs."
 fi
 
-# 1) Nuke Argo CD objects & CRDs to avoid finalizer stalls
-kubectl -n argocd delete applications --all --ignore-not-found=true --timeout=90s || true
-kubectl -n argocd delete applicationsets --all --ignore-not-found=true --timeout=90s || true
-kubectl -n argocd delete appprojects --all --ignore-not-found=true --timeout=90s || true
+# -------- remove K8s LoadBalancer Services --------
+echo "== Removing Kubernetes LoadBalancer services =="
+helm -n jenkins uninstall jenkins >/dev/null 2>&1 || true
+helm -n argocd uninstall argo-cd >/dev/null 2>&1 || true
+helm -n argocd uninstall argo_cd >/dev/null 2>&1 || true
+helm -n argocd uninstall argocd >/dev/null 2>&1 || true
 
-for r in applications applicationsets appprojects; do
-  kubectl -n argocd get "$r" -o name 2>/dev/null | xargs -r -n1 \
-    kubectl -n argocd patch --type merge -p '{"metadata":{"finalizers":[]}}' || true
-done
+if kubectl api-resources >/dev/null 2>&1; then
+  kubectl get svc -A --no-headers 2>/dev/null | awk '$5=="LoadBalancer"{print $1, $2}' \
+  | while read -r NS NAME; do
+      [ -n "$NS" ] && [ -n "$NAME" ] && kubectl -n "$NS" delete svc "$NAME" --ignore-not-found=true || true
+    done
+fi
 
-kubectl delete crd applications.argoproj.io applicationsets.argoproj.io appprojects.argoproj.io \
-  --ignore-not-found=true || true
+# -------- targeted destroy --------
+echo "== Terraform destroy (Jenkins & Argo CD) =="
+terraform -chdir="${ROOT_DIR}" destroy -auto-approve \
+  -target=module.argo_cd \
+  -target=module.jenkins || true
 
-# 2) Remove all LoadBalancer Services to trigger ELB deletion
-kubectl get svc -A 2>/dev/null | awk '$5=="LoadBalancer"{print $1,$2}' \
-  | xargs -r -n2 sh -c 'kubectl -n "$0" delete svc "$1"' || true
+# -------- proactive ELB cleanup --------
+echo "== Deleting any remaining Classic ELBs in VPC ${VPC_ID} =="
+if [ -n "$VPC_ID" ]; then
+  aws elb describe-load-balancers --query "LoadBalancerDescriptions[?VPCId=='${VPC_ID}'].LoadBalancerName" \
+    --output text --region "$REGION" 2>/dev/null | tr '\t' '\n' | while read -r ELB; do
+      [ -n "$ELB" ] && echo "Deleting classic ELB: $ELB" && \
+        aws elb delete-load-balancer --load-balancer-name "$ELB" --region "$REGION" || true
+    done
+fi
 
-# 3) Tear down k8s/helm stacks that create LBs & ENIs
-terraform destroy -target=module.argo_cd -target=module.jenkins -auto-approve || true
-terraform destroy -target=module.eks -auto-approve || true
+# -------- wait for ELBs to vanish --------
+wait_elbs_gone() {
+  VPC="$1"
+  [ -z "$VPC" ] && return 0
+  echo "== Waiting for ELBs/NLBs in VPC $VPC to be deleted =="
 
-# 4) Wait for ELBv2 to disappear from the VPC (prevents VPC/IGW deps)
-if [ -n "${VPC_ID}" ]; then
-  i=0
-  while [ $i -lt 60 ]; do
-    cnt="$(aws elbv2 describe-load-balancers \
-      --query "length(LoadBalancers[?VpcId=='${VPC_ID}'])" --output text 2>/dev/null || echo 0)"
-    [ "${cnt}" = "0" ] && break
+  for i in $(seq 1 60); do
+    ELBV2_CNT="$(aws elbv2 describe-load-balancers --query "length(LoadBalancers[?VpcId=='${VPC}'])" \
+      --output text --region "$REGION" 2>/dev/null || echo 0)"
+    CLASSIC_CNT="$(aws elb describe-load-balancers --query "length(LoadBalancerDescriptions[?VPCId=='${VPC}'])" \
+      --output text --region "$REGION" 2>/dev/null || echo 0)"
+
+    case "$ELBV2_CNT" in ''|*[!0-9]*) ELBV2_CNT=0 ;; esac
+    case "$CLASSIC_CNT" in ''|*[!0-9]*) CLASSIC_CNT=0 ;; esac
+
+    TOTAL=$((ELBV2_CNT + CLASSIC_CNT))
+    echo "  Remaining: elbv2=${ELBV2_CNT}, classic=${CLASSIC_CNT}"
+
+    [ "$TOTAL" -eq 0 ] && echo "  OK: No load balancers remain." && return 0
     sleep 10
-    i=$((i+1))
   done
-fi
 
-# 5) Proactively remove public route table & IGW before the rest of VPC (fast)
-#    This prevents 'aws_internet_gateway.this: Still destroying...' caused by
-#    slow NAT GW teardown.
-terraform destroy -target=module.vpc.aws_route_table_association.public -auto-approve || true
-terraform destroy -target=module.vpc.aws_route_table.public -auto-approve || true
-terraform destroy -target=module.vpc.aws_internet_gateway.this -auto-approve || true
+  echo "WARN: Some load balancers still exist; continuing anyway."
+}
 
-# 6) Now destroy the remainder of the VPC (subnets, NAT GW, EIPs, etc.)
-terraform destroy -target=module.vpc -auto-approve || true
+wait_elbs_gone "$VPC_ID"
 
-# 7) Final sweep (anything left)
-terraform destroy -auto-approve || true
+# -------- final destroy --------
+echo "== Terraform destroy (everything) =="
+terraform -chdir="${ROOT_DIR}" destroy -auto-approve
+
+echo "✅ Destroy complete."
