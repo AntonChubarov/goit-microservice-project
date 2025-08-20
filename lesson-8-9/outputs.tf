@@ -109,3 +109,33 @@ output "argocd_admin_password" {
   description = "Initial admin password"
   value       = module.argo_cd.admin_password
 }
+
+# Discover LoadBalancer endpoints for Jenkins and Argo CD
+# (Requires the kubernetes provider to be configured after EKS creation.)
+
+data "kubernetes_service" "jenkins" {
+  metadata {
+    name      = "jenkins"
+    namespace = "jenkins"
+  }
+  depends_on = [module.jenkins]
+}
+
+data "kubernetes_service" "argocd_server" {
+  metadata {
+    name      = "argocd-server"
+    namespace = "argocd"
+  }
+  depends_on = [module.argo_cd]
+}
+
+# External URLs (prefer hostname; fall back to IP)
+output "jenkins_url" {
+  description = "External URL for Jenkins"
+  value       = "http://${try(data.kubernetes_service.jenkins.status[0].load_balancer[0].ingress[0].hostname, try(data.kubernetes_service.jenkins.status[0].load_balancer[0].ingress[0].ip, ""))}"
+}
+
+output "argocd_url" {
+  description = "External URL for Argo CD"
+  value       = "http://${try(data.kubernetes_service.argocd_server.status[0].load_balancer[0].ingress[0].hostname, try(data.kubernetes_service.argocd_server.status[0].load_balancer[0].ingress[0].ip, ""))}"
+}

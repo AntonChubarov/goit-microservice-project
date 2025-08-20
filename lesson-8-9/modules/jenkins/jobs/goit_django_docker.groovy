@@ -4,13 +4,12 @@ pipelineJob("goit-django-docker") {
       scm {
         git {
           remote {
-            url("${github_repo_url}")
+            url("https://github.com/AntonChubarov/goit-microservice-project.git")
             credentials("github-token")
           }
           branches("*/lesson-8-9")
         }
       }
-      // Jenkinsfile lives under lesson-8-9/
       scriptPath("lesson-8-9/Jenkinsfile")
     }
   }

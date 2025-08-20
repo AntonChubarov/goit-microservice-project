@@ -8,7 +8,7 @@ set -eu
 # 2) Build Django image locally from ./django and push to ECR (latest + timestamp)
 # 3) Commit image repo/tag to the remote GitHub chart (lesson-8-9) and push
 # 4) Apply full Terraform (Jenkins, Argo CD, etc.)
-# 5) Block until Jenkins & Argo CD have external LoadBalancer hostnames
+# 5) Print Terraform outputs for Jenkins & Argo CD URLs
 #
 # Usage:
 #   GITHUB_USERNAME=... GITHUB_TOKEN=... ./scripts/deploy.sh
@@ -16,7 +16,7 @@ set -eu
 # Notes:
 #   - Default AWS profile must be configured; this script uses it implicitly.
 #   - Region hardcoded to us-east-1 (per request).
-#   - If the values.yaml already points to the same ECR+tag, we skip commit/push (no-fail).
+#   - If values.yaml already points to the same ECR+tag, commit/push is skipped.
 # ==========================================================
 
 # ---- required envs ----
@@ -30,10 +30,6 @@ export AWS_DEFAULT_REGION="$REGION"
 
 GITHUB_REPO_URL="https://github.com/AntonChubarov/goit-microservice-project.git"
 GITHUB_BRANCH="lesson-8-9"
-
-# Wait controls for LoadBalancer provisioning (override via env if needed)
-LB_WAIT_SECS="${LB_WAIT_SECS:-1200}"  # 20 minutes
-LB_POLL_SECS="${LB_POLL_SECS:-10}"
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
@@ -108,8 +104,6 @@ echo "Wrote initial image tag to ${ROOT_DIR}/.initial_image_tag"
 
 # ----------------------------------------------------------
 # 3) Update REMOTE GitHub chart values to use this ECR + latest
-#     NOTE: all files live under the lesson-8-9/ folder
-#     Robust: if nothing changed, skip commit/push without failing.
 # ----------------------------------------------------------
 TMP_DIR="$(mktemp -d)"
 cleanup() { rm -rf "${TMP_DIR}"; }
@@ -125,9 +119,6 @@ VALUES_FILE="lesson-8-9/charts/django-app/values.yaml"
 [ -f "${VALUES_FILE}" ] || { echo "ERROR: ${VALUES_FILE} not found in remote repo"; exit 1; }
 
 # Replace repository and tag lines in values.yaml
-#   image:
-#     repository: <ECR_REPO_URL>
-#     tag: latest
 sed -i.bak -E "s#^( *repository:).*#\1 ${ECR_REPO_URL}#" "${VALUES_FILE}"
 sed -i.bak -E "s#^( *tag:).*#\1 latest#" "${VALUES_FILE}"
 rm -f "${VALUES_FILE}.bak"
@@ -136,7 +127,6 @@ git config user.email "cicd-bot@example.local"
 git config user.name  "cicd-bot"
 git add "${VALUES_FILE}"
 
-# Commit/push only if there are staged changes; otherwise continue.
 if ! git diff --quiet --cached; then
   git commit -m "ci: point image to ${ECR_REPO_URL} and tag=latest (bootstrap deploy)"
   git push origin "${GITHUB_BRANCH}"
@@ -148,60 +138,17 @@ cd "${ROOT_DIR}"
 
 # ----------------------------------------------------------
 # 4) Full Terraform apply (Jenkins, Argo CD, addons, etc.)
+#     (Terraform computes outputs that block until LB URLs exist)
 # ----------------------------------------------------------
 echo "== Terraform apply (full stack) =="
 terraform -chdir="${ROOT_DIR}" apply -auto-approve
 
 # ----------------------------------------------------------
-# 5) kubeconfig + BLOCK until Jenkins/Argo CD LoadBalancers are ready
+# 5) Print URLs from Terraform outputs
 # ----------------------------------------------------------
-echo "== Update kubeconfig for ${EKS_CLUSTER_NAME} =="
-aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --region "${REGION}" >/dev/null
-
-# Wait for Service existence and external address
-wait_lb() {
-  NS="$1"; SVC="$2"; SCHEME="$3" # http or https
-
-  echo "Waiting for Service ${SVC}.${NS} to exist..."
-  end=$(( $(date +%s) + LB_WAIT_SECS ))
-  while :; do
-    if kubectl -n "${NS}" get svc "${SVC}" >/dev/null 2>&1; then
-      break
-    fi
-    if [ "$(date +%s)" -ge "${end}" ]; then
-      echo "ERROR: Service ${SVC}.${NS} did not appear within ${LB_WAIT_SECS}s"
-      return 1
-    fi
-    sleep "${LB_POLL_SECS}"
-  done
-
-  echo "Waiting for ${SVC}.${NS} LoadBalancer external address..."
-  while :; do
-    HN="$(kubectl -n "${NS}" get svc "${SVC}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
-    IP="$(kubectl -n "${NS}" get svc "${SVC}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
-    if [ -n "${HN}" ] && [ "${HN}" != "<pending>" ]; then
-      printf "%s://%s\n" "${SCHEME}" "${HN}"
-      return 0
-    fi
-    if [ -n "${IP}" ]; then
-      printf "%s://%s\n" "${SCHEME}" "${IP}"
-      return 0
-    fi
-    if [ "$(date +%s)" -ge "${end}" ]; then
-      echo "ERROR: ${SVC}.${NS} did not get an external address within ${LB_WAIT_SECS}s"
-      return 1
-    fi
-    sleep "${LB_POLL_SECS}"
-  done
-}
-
-echo "== Waiting for external URLs =="
-JENKINS_URL="$(wait_lb jenkins jenkins http)"
-ARGO_URL="$(wait_lb argocd argocd-server https)"
-
-echo "================ Service URLs ================"
-echo "Jenkins: ${JENKINS_URL}"
-echo "Argo CD: ${ARGO_URL}"
+echo "================ Service URLs (from Terraform outputs) ================"
+echo "Jenkins: $(terraform -chdir="${ROOT_DIR}" output -raw jenkins_url || echo '(unavailable)')"
+echo "Argo CD: $(terraform -chdir="${ROOT_DIR}" output -raw argocd_url || echo '(unavailable)')"
 
 echo "Argo CD admin password command:"
 terraform -chdir="${ROOT_DIR}" output -raw argocd_admin_password || true
