@@ -18,9 +18,14 @@ resource "helm_release" "argo_apps" {
   namespace        = var.namespace
   create_namespace = false
 
+  # IMPORTANT: template the values file so ${github_*} actually get substituted
   values = [
-    file("${path.module}/values.yaml")
+    templatefile("${path.module}/charts/values.yaml", {
+      github_repo_url = var.github_repo_url
+      github_user     = var.github_user
+      github_pat      = var.github_pat
+    })
   ]
+
   depends_on = [helm_release.argo_cd]
 }
-

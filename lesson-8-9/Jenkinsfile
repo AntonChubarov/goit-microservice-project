@@ -6,28 +6,27 @@ apiVersion: v1
 kind: Pod
 metadata:
   labels:
-    some-label: jenkins-kaniko
+    role: jenkins-kaniko
 spec:
   serviceAccountName: jenkins-sa
   containers:
     - name: kaniko
       image: gcr.io/kaniko-project/executor:v1.16.0-debug
       imagePullPolicy: Always
-      command:
-        - sleep
-      args:
-        - 99d
+      command: ["sleep"]
+      args: ["99d"]
+    - name: git
+      image: alpine/git:latest
+      imagePullPolicy: IfNotPresent
+      command: ["sleep"]
+      args: ["99d"]
 """
     }
   }
 
   environment {
-    ECR_REGISTRY = "804054839611.dkr.ecr.eu-central-1.amazonaws.com"
-    IMAGE_NAME   = "ecr-repo-18062025214500"
-    IMAGE_TAG    = "v1.0.${BUILD_NUMBER}"
-
-    COMMIT_EMAIL = "jenkins@localhost"
-    COMMIT_NAME  = "jenkins"
+    // Image tag per build
+    IMAGE_TAG = "v1.0.${BUILD_NUMBER}"
   }
 
   stages {
@@ -35,13 +34,21 @@ spec:
       steps {
         container('kaniko') {
           sh '''
-            /kaniko/executor \\
-              --context `pwd` \\
-              --dockerfile `pwd`/Dockerfile \\
-              --destination=$ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG \\
-              --cache=true \\
-              --insecure \\
-              --skip-tls-verify
+            set -eu
+
+            # Discover the ECR repo from the chart values (kept in the repo)
+            ECR_REPO="$(grep -E '^ *repository:' lesson-8-9/charts/django-app/values.yaml | awk '{print $2}')"
+            [ -n "$ECR_REPO" ] || { echo "ERROR: Could not parse image.repository from values.yaml"; exit 1; }
+
+            echo "Using ECR repository: $ECR_REPO"
+
+            # Build from the Django Dockerfile location
+            /kaniko/executor \
+              --context "$(pwd)/django" \
+              --dockerfile "$(pwd)/django/Dockerfile" \
+              --destination="${ECR_REPO}:${IMAGE_TAG}" \
+              --destination="${ECR_REPO}:latest" \
+              --cache=true
           '''
         }
       }
@@ -50,20 +57,29 @@ spec:
     stage('Update Chart Tag in Git') {
       steps {
         container('git') {
-          withCredentials([usernamePassword(credentialsId: 'github-token', usernameVariable: ${github_user}, passwordVariable: ${github_pat})]) {
+          withCredentials([usernamePassword(credentialsId: 'github-token', usernameVariable: 'GITHUB_USER', passwordVariable: 'GITHUB_PAT')]) {
             sh '''
-              git clone https://${github_user}:${github_pat}@github.com/${github_user}/devops.git
-              git checkout -b lesson-9
-              cd devops/charts/django-app
+              set -eu
+              REPO_SSH="https://${GITHUB_USER}:${GITHUB_PAT}@github.com/AntonChubarov/goit-microservice-project.git"
 
-              sed -i "s/tag: .*/tag: $IMAGE_TAG/" values.yaml
+              rm -rf repo
+              git clone "$REPO_SSH" repo
+              cd repo
+              git checkout lesson-8-9
 
-              git config user.email "$COMMIT_EMAIL"
-              git config user.name "$COMMIT_NAME"
+              cd lesson-8-9/charts/django-app
+              # bump tag only; repository is already kept in sync by deploy.sh bootstrap
+              sed -i -E "s#^( *tag:).*#\\1 ${IMAGE_TAG}#" values.yaml
 
+              git config user.email "jenkins@localhost"
+              git config user.name "jenkins"
               git add values.yaml
-              git commit -m "Update image tag to $IMAGE_TAG"
-              git push origin lesson-9
+              if git diff --cached --quiet; then
+                echo "No changes to commit."
+              else
+                git commit -m "ci: bump image tag to ${IMAGE_TAG}"
+                git push origin lesson-8-9
+              fi
             '''
           }
         }
