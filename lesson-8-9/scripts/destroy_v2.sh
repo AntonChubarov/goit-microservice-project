@@ -71,15 +71,19 @@ wait_elbs_gone() {
 
   ATTEMPTS=60   # ~10 minutes (60 * 10s)
   i=1
-  while [ $i -le $ATTEMPTS ]; do
+  while [ "$i" -le "$ATTEMPTS" ]; do
     ELBV2_CNT="$(aws elbv2 describe-load-balancers \
       --query "length(LoadBalancers[?VpcId=='${VPC}'])" --output text 2>/dev/null || echo 0)"
     CLASSIC_CNT="$(aws elb describe-load-balancers \
       --query "length(LoadBalancerDescriptions[?VPCId=='${VPC}'])" --output text 2>/dev/null || echo 0)"
 
-    TOTAL=$(( (ELBV2_CNT:-0) + (CLASSIC_CNT:-0) ))
-    echo "  Remaining: elbv2=${ELBV2_CNT:-0}, classic=${CLASSIC_CNT:-0}"
-    if [ "${TOTAL}" -eq 0 ]; then
+    # Sanitize to numeric (dash/posix-safe)
+    case "$ELBV2_CNT" in ''|*[!0-9]*) ELBV2_CNT=0 ;; esac
+    case "$CLASSIC_CNT" in ''|*[!0-9]*) CLASSIC_CNT=0 ;; esac
+
+    TOTAL=$(( ELBV2_CNT + CLASSIC_CNT ))
+    echo "  Remaining: elbv2=${ELBV2_CNT}, classic=${CLASSIC_CNT}"
+    if [ "$TOTAL" -eq 0 ]; then
       echo "  OK: No load balancers remain."
       return 0
     fi
