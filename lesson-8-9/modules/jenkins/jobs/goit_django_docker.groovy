@@ -4,7 +4,7 @@ pipelineJob("goit-django-docker") {
       scm {
         git {
           remote {
-            url(${github_repo_url})
+            url("${github_repo_url}")
             credentials("github-token")
           }
           branches("*/lesson-8-9")

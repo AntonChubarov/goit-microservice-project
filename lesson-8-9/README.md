@@ -1,66 +1,100 @@
-# Lesson 5 Terraform project
+# Steps
 
-## Вимоги до середовища
+!!! Make sure you have installed `Terraform` and `Helm` on your system.
 
-- Операційна система Linux
-- Git
-- Docker
-- AWS CLI
-- Terraform
-- Helm
-- kubectl
+## Terraform
 
-Переконайтеся що автентифікаційні дані для Вашого AWS аккаунту налаштовані у вашій системі.
+Ініціалізація Terraform:
 
-## Розгортання проекту
-
-1. Склонуйте репозиторій:
-```shell
-git clone https://github.com/AntonChubarov/goit-microservice-project.git
+```bash
+terraform init
 ```
 
-2. Перейдіть у папку проекту:
-```shell
-cd goit-microservice-project
+Перевірка змін:
+
+```bash
+terraform plan
 ```
 
-3. Перемкніться на гілку `lesson-8-9`:
-```shell
-git checkout lesson-8-9
+Застосування змін:
+
+```bash
+terraform apply
 ```
 
-4. Перейдіть у папку проекту:
-```shell
-cd lesson-8-9
+Завантажити django image на новостворений ECR-репозиторій:
+
+```bash
+docker tag django_image:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:latest
+docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:latest
 ```
 
-6. Розгорніть проект:
-```shell
-sh scripts/deploy.sh
+where `django_image:latest` your django image name that already exists in your local machine.
+
+Replace $AWS_ACCOUNT_ID, $AWS_REGION, and $ECR_REPOSITORY with your own values.
+
+## Helm
+
+Застосування Helm:
+
+```bash
+cd charts/django-app
+helm install my-django .
 ```
 
-7. Перевірте що застосунок працює: Перейдіть за посиланням `http://<Service hostname>/db-check` - повинно бути отримане повідомлення `{"status": "ok"}`, або перейдіть за посиланням `http://<Service hostname>/admin` - повинна відобразитись дефолтна адмін-сторінка Django-сервісу. Service hostname буде виведено в кінці виконання скрипта.
+where `my-django` is your helm chart name.
 
-   Примітка: сервіс може стати доступним на посиланням не миттєво після завершення роботи скрипта.
+# Видалення ресурсів:
 
-8. Налаштуйте конфігурацію для віддаленого керування кластером Kubernetes:
-```shell
-sh scripts/aws_kubeconfig.sh
+Kubernetes (PODs, Services, Deployments etc.)
+```bash
+helm uninstall my-django
 ```
 
-9. Перегляньте список подів:
-```shell
-kubectl get pods
+where `my-django` is your helm chart name.
+
+Terraform (EKS, VPC, ECR etc.)
+
+```bash
+terraform destroy
 ```
 
-10. Перевірте логи подів:
-```shell
-kubectl logs -f <pod_name>
+# Додаткова інформація:
+
+Якщо ви хочете оновити helm chart:
+
+```bash
+helm upgrade my-django .
 ```
 
-11. Альтернативно - скористайтесь інструментом `k9s`.
+Якщо ви хочете оновити terraform:
 
-12. Видаліть проект:
-```shell
-sh scripts/destroy.sh
+```bash
+terraform init -upgrade
+terraform plan
+terraform apply
 ```
+
+# Опис модулів terraform
+
+## s3-backend
+
+Модуль для створення S3-бакета для збереження стейтів.
+В модулі створюється S3-бакет, налаштовується версіонування та контроль власності.
+Також створюється DynamoDB-таблиця для блокування стейтів.
+
+## vpc
+
+Модуль для створення VPC.
+В модулі встановлена VPC, публічні підмережі, приватні підмережі та зони доступності.
+Також створюється NAT Gateway, Internet Gateway та таблиці роутів для доступу до інтернету.
+
+## ecr
+
+Модуль для створення ECR-репозиторію.
+В модулі створюється репозиторій ECR, налаштовується автоматичне сканування security-вразливостей під час push.
+
+## eks
+
+Модуль для створення EKS-кластера.
+В модулі створюється EKS-кластер, налаштовується автоматичне сканування security-вразливостей під час push.

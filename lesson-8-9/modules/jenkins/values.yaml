@@ -2,11 +2,13 @@ controller:
   admin:
     username: admin
     password: admin123
+
   serviceType: LoadBalancer
   servicePort: 80
   service:
     port: 80
     targetPort: 8080
+
   resources:
     limits:
       cpu: "500m"
@@ -14,10 +16,12 @@ controller:
     requests:
       cpu: "250m"
       memory: "512Mi"
+
   persistentVolume:
     enabled: true
     storageClass: "ebs-sc"
     size: 10Gi
+
   installPlugins:
     - kubernetes:latest
     - workflow-aggregator:latest
@@ -28,9 +32,11 @@ controller:
     - docker-plugin:latest
     - docker-workflow:latest
     - job-dsl:latest
+
   serviceAccount:
     name: jenkins-sa
     create: false
+
   JCasC:
     configScripts:
       credentials: |
@@ -55,7 +61,7 @@ controller:
                       url('${github_repo_url}')
                       credentials('github-token')
                     }
-                    branches('*/lesson-9')
+                    branches('*/lesson-8-9')
                   }
                 }
                 steps {
@@ -70,9 +76,10 @@ controller:
                                   url("${github_repo_url}")
                                   credentials("github-token")
                                 }
-                                branches("*/lesson-9")
+                                branches("*/lesson-8-9")
                               }
                             }
+                            scriptPath("Jenkinsfile")
                           }
                         }
                       }

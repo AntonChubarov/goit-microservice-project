@@ -5,18 +5,23 @@ resource "kubernetes_storage_class_v1" "ebs_sc" {
       "storageclass.kubernetes.io/is-default-class" = "true"
     }
   }
+
   storage_provisioner = "ebs.csi.aws.com"
+
   reclaim_policy      = "Delete"
   volume_binding_mode = "WaitForFirstConsumer"
+
   parameters = {
     type = "gp3"
   }
 }
+
 resource "kubernetes_namespace" "jenkins" {
   metadata {
     name = "jenkins"
   }
 }
+
 resource "kubernetes_service_account" "jenkins_sa" {
   metadata {
     name        = "jenkins-sa"
@@ -27,8 +32,10 @@ resource "kubernetes_service_account" "jenkins_sa" {
   }
   depends_on = [kubernetes_namespace.jenkins]
 }
+
 resource "aws_iam_role" "jenkins_kaniko_role" {
   name = "${var.cluster_name}-jenkins-kaniko-role"
+
   assume_role_policy = jsonencode({
     Version   = "2012-10-17",
     Statement = [
@@ -47,9 +54,11 @@ resource "aws_iam_role" "jenkins_kaniko_role" {
     ]
   })
 }
+
 resource "aws_iam_role_policy" "jenkins_ecr_policy" {
   name = "${var.cluster_name}-jenkins-kaniko-ecr-policy"
   role = aws_iam_role.jenkins_kaniko_role.id
+
   policy = jsonencode({
     Version   = "2012-10-17",
     Statement = [
@@ -69,6 +78,7 @@ resource "aws_iam_role_policy" "jenkins_ecr_policy" {
     ]
   })
 }
+
 resource "helm_release" "jenkins" {
   name             = "jenkins"
   namespace        = "jenkins"
@@ -76,7 +86,9 @@ resource "helm_release" "jenkins" {
   chart            = "jenkins"
   version          = "5.8.27"
   create_namespace = false
+
   values = [
     file("${path.module}/values.yaml")
   ]
 }
+

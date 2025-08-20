@@ -1,25 +1,27 @@
-# resource "aws_s3_bucket" "this" {
-#   bucket = var.bucket_name
+## Створюємо S3-бакет
+#resource "aws_s3_bucket" "terraform_state" {
+#  bucket        = var.bucket_name
+#  force_destroy = var.force_delete
 #
-#   # lifecycle {
-#   #   prevent_destroy = true
-#   # }
-# }
+#  tags = {
+#    Name        = "Terraform State Bucket"
+#    Environment = "lesson-5"
+#  }
+#}
 #
-# resource "aws_s3_bucket_versioning" "this" {
-#   bucket = aws_s3_bucket.this.id
+## Налаштовуємо версіонування для S3-бакета
+#resource "aws_s3_bucket_versioning" "terraform_state_versioning" {
+#  bucket = aws_s3_bucket.terraform_state.id
 #
-#   versioning_configuration {
-#     status = "Enabled"
-#   }
-# }
+#  versioning_configuration {
+#    status = "Enabled"
+#  }
+#}
 #
-# resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
-#   bucket = aws_s3_bucket.this.id
-#
-#   rule {
-#     apply_server_side_encryption_by_default {
-#       sse_algorithm = "AES256"
-#     }
-#   }
-# }
+## Встановлюємо контроль власності для S3-бакета
+#resource "aws_s3_bucket_ownership_controls" "terraform_state_ownership" {
+#  bucket = aws_s3_bucket.terraform_state.id
+#  rule {
+#    object_ownership = "BucketOwnerEnforced"
+#  }
+#}
