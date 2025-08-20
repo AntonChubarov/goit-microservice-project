@@ -29,31 +29,16 @@ controller:
     - configuration-as-code:latest
     - credentials-binding:latest
     - github:latest
+    - docker-plugin:latest
     - docker-workflow:latest
     - job-dsl:latest
-    - pipeline-utility-steps:latest
 
   serviceAccount:
     name: jenkins-sa
     create: false
 
-  # Auto-run the seed job once Jenkins is up
-  initScripts:
-    01-run-seed.groovy: |
-      import jenkins.model.Jenkins
-      import hudson.model.*
-      def j = Jenkins.instance
-      def seed = j.getItem('seed-job')
-      if (seed != null) {
-        println "[init] Scheduling initial build of 'seed-job'..."
-        seed.scheduleBuild2(0)
-      } else {
-        println "[init] 'seed-job' not found at init time."
-      }
-
   JCasC:
     configScripts:
-      # Credentials for GitHub (used by seed job / pipeline)
       credentials: |
         credentials:
           system:
@@ -65,14 +50,6 @@ controller:
                       username: ${github_user}
                       password: ${github_pat}
                       description: GitHub PAT
-
-      # Allow Job DSL without manual script approval
-      jobdsl-security: |
-        unclassified:
-          job-dsl:
-            useScriptSecurity: false
-
-      # Seed job that creates the pipeline that builds/pushes and bumps the chart
       seed-job: |
         jobs:
           - script: >
@@ -86,9 +63,6 @@ controller:
                     }
                     branches('*/lesson-8-9')
                   }
-                }
-                triggers {
-                  scm('H/5 * * * *')
                 }
                 steps {
                   dsl {
@@ -110,9 +84,6 @@ controller:
                         }
                       }
                     ''')
-                    ignoreExisting(false)
-                    removedJobAction('DELETE')
-                    useScriptSecurity(false)
                   }
                 }
               }

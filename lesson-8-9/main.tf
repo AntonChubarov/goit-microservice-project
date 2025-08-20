@@ -26,7 +26,7 @@ module "vpc" {
   vpc_cidr_block     = "10.0.0.0/16"
   public_subnets     = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
   private_subnets    = ["10.0.4.0/24", "10.0.5.0/24", "10.0.6.0/24"]
-  availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c"]
+  availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c"] # <-- updated to us-east-1
   vpc_name           = var.vpc_name
 }
 
@@ -86,12 +86,8 @@ module "jenkins" {
 }
 
 module "argo_cd" {
-  source          = "./modules/argo_cd"
-  namespace       = "argocd"
-  chart_version   = "5.46.4"
-  # NEW: pass repo creds so Argo CD Repository Secret is valid
-  github_user     = var.github_user
-  github_pat      = var.github_pat
-  github_repo_url = var.github_repo_url
-  depends_on      = [module.eks]
+  source        = "./modules/argo_cd"
+  namespace     = "argocd"
+  chart_version = "5.46.4"
+  depends_on    = [module.eks]
 }
