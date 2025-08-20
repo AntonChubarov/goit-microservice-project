@@ -3,7 +3,7 @@ applications:
     namespace: default
     project: default
     source:
-      repoURL: ${github_repo_url}
+      repoURL: https://github.com/AntonChubarov/goit-microservice-project.git
       # All deployable content is inside the lesson-8-9 folder in the repo:
       path: lesson-8-9/charts/django-app
       targetRevision: lesson-8-9
