@@ -6,106 +6,57 @@ apiVersion: v1
 kind: Pod
 metadata:
   labels:
-    jenkins: kaniko
+    some-label: jenkins-kaniko
 spec:
   serviceAccountName: jenkins-sa
-  volumes:
-    - name: docker-config
-      emptyDir: {}
   containers:
     - name: kaniko
-      image: gcr.io/kaniko-project/executor:v1.22.0
-      imagePullPolicy: IfNotPresent
-      command: ["sh", "-c"]
-      args: ["sleep 99d"]
-      volumeMounts:
-        - name: docker-config
-          mountPath: /kaniko/.docker
-    - name: aws
-      image: amazon/aws-cli:2
-      imagePullPolicy: IfNotPresent
-      command: ["sh", "-c"]
-      args: ["sleep 99d"]
-      volumeMounts:
-        - name: docker-config
-          mountPath: /kaniko/.docker
-    - name: git
-      image: alpine/git:2.45.2
-      imagePullPolicy: IfNotPresent
-      command: ["sh", "-c"]
-      args: ["sleep 99d"]
+      image: gcr.io/kaniko-project/executor:v1.16.0-debug
+      imagePullPolicy: Always
+      command:
+        - sleep
+      args:
+        - 99d
 """
     }
   }
-
   environment {
-    AWS_REGION   = "us-east-1"
+    ECR_REGISTRY = "458845291257.dkr.ecr.eu-central-1.amazonaws.com"
     IMAGE_NAME   = "lesson-8-9-ecr"
-    IMAGE_TAG    = "${env.BUILD_NUMBER}"
-    CHART_FILE   = "lesson-8-9/charts/django-app/values.yaml"
-    DOCKERFILE   = "Dockerfile"
-    CONTEXT_DIR  = "."
-    // Keep this in sync with Argo CD's targetRevision
-    GIT_BRANCH   = "lesson-8-9"
-    GIT_REPO_URL = "https://github.com/AntonChubarov/goit-microservice-project.git"
+    IMAGE_TAG    = "v1.0.${BUILD_NUMBER}"
+    COMMIT_EMAIL = "jenkins@localhost"
+    COMMIT_NAME  = "jenkins"
   }
-
   stages {
-    stage('Checkout') {
-      steps { checkout scm }
-    }
-
-    stage('Resolve ECR Registry + Login') {
-      steps {
-        container('aws') {
-          sh '''
-            set -eu
-            acct="$(aws sts get-caller-identity --query Account --output text)"
-            echo "${acct}.dkr.ecr.${AWS_REGION}.amazonaws.com" > /tmp/ecr.txt
-            pw="$(aws ecr get-login-password --region "${AWS_REGION}")"
-            mkdir -p /kaniko/.docker
-            auth="$(printf 'AWS:%s' "${pw}" | base64 -w 0 | tr -d '\n')"
-            reg="$(cat /tmp/ecr.txt)"
-            printf '{"auths":{"https://%s":{"auth":"%s"}}}\n' "${reg}" "${auth}" > /kaniko/.docker/config.json
-          '''
-          script { env.ECR_REGISTRY = sh(script: 'cat /tmp/ecr.txt', returnStdout: true).trim() }
-        }
-      }
-    }
-
-    stage('Build & Push Image (Kaniko)') {
+    stage('Build & Push Docker Image') {
       steps {
         container('kaniko') {
           sh '''
-            /kaniko/executor \
-              --context "${CONTEXT_DIR}" \
-              --dockerfile "${DOCKERFILE}" \
-              --destination "${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}" \
-              --cache=true
+            /kaniko/executor \\
+              --context `pwd` \\
+              --dockerfile `pwd`/Dockerfile \\
+              --destination=$ECR_REGISTRY/$IMAGE_NAME:$IMAGE_TAG \\
+              --cache=true \\
+              --insecure \\
+              --skip-tls-verify
           '''
         }
       }
     }
-
-    stage('Update Helm values and Push to Git') {
+    stage('Update Chart Tag in Git') {
       steps {
         container('git') {
-          withCredentials([usernamePassword(credentialsId: 'github-token', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_PAT')]) {
+          withCredentials([usernamePassword(credentialsId: 'github-token', usernameVariable: ${github_user}, passwordVariable: ${github_pat})]) {
             sh '''
-              set -eu
-              git fetch origin "${GIT_BRANCH}"
-              git checkout "${GIT_BRANCH}"
-
-              sed -i"" -e "s|^\\s*repository:.*|  repository: \\\"${ECR_REGISTRY}/${IMAGE_NAME}\\\"|" "${CHART_FILE}"
-              sed -i"" -e "s|^\\s*tag:.*|  tag: \\\"${IMAGE_TAG}\\\"|" "${CHART_FILE}"
-
-              git config user.email "ci@example.com"
-              git config user.name "ci"
-              git add "${CHART_FILE}"
-              git commit -m "ci: image ${IMAGE_TAG}" || echo "No changes to commit"
-
-              git remote set-url origin "https://${GIT_USER}:${GIT_PAT}@github.com/AntonChubarov/goit-microservice-project.git"
-              git push origin HEAD:${GIT_BRANCH}
+              git clone https://${github_user}:${github_pat}@github.com/${github_user}/devops.git
+              git checkout -b lesson-8-9
+              cd devops/charts/django-app
+              sed -i "s/tag: .*/tag: $IMAGE_TAG/" values.yaml
+              git config user.email "$COMMIT_EMAIL"
+              git config user.name "$COMMIT_NAME"
+              git add values.yaml
+              git commit -m "Update image tag to $IMAGE_TAG"
+              git push origin lesson-8-9
             '''
           }
         }

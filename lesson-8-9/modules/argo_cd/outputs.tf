@@ -1,22 +1,12 @@
-data "kubernetes_service_v1" "argocd_server" {
-  metadata {
-    name      = "argo-cd-argocd-server"
-    namespace = var.namespace
-  }
-  depends_on = [helm_release.argo_cd]
+output "namespace" {
+    description = "Argo CD namespace"
+    value       = var.namespace
 }
-
-locals {
-  argocd_lb = try(
-    data.kubernetes_service_v1.argocd_server.status[0].load_balancer[0].ingress[0].hostname,
-    try(data.kubernetes_service_v1.argocd_server.status[0].load_balancer[0].ingress[0].ip, null)
-  )
+output "argo_cd_server_service" {
+  description = "Argo CD server service"
+  value       = "argo-cd.${var.namespace}.svc.cluster.local"
 }
-
-output "argocd_hostname" {
-  value = local.argocd_lb
-}
-
-output "argocd_url" {
-  value = local.argocd_lb != null ? "http://${local.argocd_lb}" : null
+output "admin_password" {
+  description = "Initial admin password"
+  value       = "Run: kubectl -n ${var.namespace} get secret argocd-initial-admin-secret -o jsonpath={.data.password} | base64 -d"
 }

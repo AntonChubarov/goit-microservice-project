@@ -1,35 +1,10 @@
-replicaCount: 2
-
 image:
-  repository: "public.ecr.aws/docker/library/python"
-  tag: "3.12-alpine"
-
-containerPort: 8000
-readinessPath: /db-check
-livenessPath: /db-check
-
-resources:
-  requests:
-    cpu: "100m"
-    memory: "128Mi"
-  limits:
-    cpu: "500m"
-    memory: "512Mi"
-
+  repository: 458845291257.dkr.ecr.eu-central-1.amazonaws.com/lesson-8-9-ecr
+  tag: latest
+  pullPolicy: IfNotPresent
+#  pullPolicy: Always
 service:
-  type: ClusterIP
-  port: 80
-
-env:
-  DJANGO_SETTINGS_MODULE: "test_project.settings"
-  SECRET_KEY: "change_me"
-  DEBUG: "True"
-  ALLOWED_HOSTS: "*"
-
-secrets: {}
-
-autoscaling:
-  enabled: true
-  minReplicas: 2
-  maxReplicas: 6
-  targetCPUUtilizationPercentage: 70
+  type: LoadBalancer
+  port: 8000
+ingress:
+  enabled: false

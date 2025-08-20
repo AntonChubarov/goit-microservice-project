@@ -1,59 +1,23 @@
 controller:
-  image:
-    # IMPORTANT: do NOT override the tag; let the chart default decide the core version
-    repository: jenkins/jenkins
-    # tag: (removed on purpose)
-
-  numExecutors: 0
-
   admin:
     username: admin
     password: admin123
-
   serviceType: LoadBalancer
-
+  servicePort: 80
+  service:
+    port: 80
+    targetPort: 8080
   resources:
-    requests:
-      cpu: "300m"
-      memory: "1Gi"
     limits:
-      cpu: "1"
-      memory: "2Gi"
-
-  javaOpts: >-
-    -Djenkins.install.runSetupWizard=false
-    -Xms256m -Xmx1024m
-    -XX:+UseG1GC -XX:MaxMetaspaceSize=256m
-
-  # Keep probes; issue is plugins/JCasC, not timing, but these are reasonable
-  startupProbe:
-    httpGet: { path: /login, port: http }
-    initialDelaySeconds: 120
-    periodSeconds: 10
-    timeoutSeconds: 10
-    failureThreshold: 180
-  readinessProbe:
-    httpGet: { path: /login, port: http }
-    initialDelaySeconds: 90
-    periodSeconds: 10
-    timeoutSeconds: 10
-    failureThreshold: 180
-  livenessProbe:
-    httpGet: { path: /login, port: http }
-    initialDelaySeconds: 240
-    periodSeconds: 10
-    timeoutSeconds: 10
-    failureThreshold: 90
-
+      cpu: "500m"
+      memory: "1Gi"
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
   persistentVolume:
     enabled: true
     storageClass: "ebs-sc"
     size: 10Gi
-
-  # Let Helm/Jenkins manage compatible plugins; overwrite stale ones if present
-  overwritePlugins: true
-
-  # EXPLICIT plugin versions as requested
   installPlugins:
     - kubernetes:latest
     - workflow-aggregator:latest
@@ -64,39 +28,55 @@ controller:
     - docker-plugin:latest
     - docker-workflow:latest
     - job-dsl:latest
-
   serviceAccount:
     name: jenkins-sa
     create: false
-
   JCasC:
-    enabled: true
-    defaultConfig: false
     configScripts:
-      jenkins-config: |
-        jenkins:
-          systemMessage: "Jenkins"
-          clouds:
-            - kubernetes:
-                name: "k8s"
-                serverUrl: "https://kubernetes.default.svc"
-                namespace: "jenkins"
-                jenkinsUrl: "http://jenkins.jenkins.svc.cluster.local:8080"
-                containerCapStr: "10"
-                templates: []
+      credentials: |
+        credentials:
+          system:
+            domainCredentials:
+              - credentials:
+                  - usernamePassword:
+                      scope: GLOBAL
+                      id: github-token
+                      username: ${github_user}
+                      password: ${github_pat}
+                      description: GitHub PAT
+      seed-job: |
         jobs:
           - script: >
-              pipelineJob('lesson-8-9') {
-                definition {
-                  cpsScm {
-                    scm {
-                      git {
-                        remote { url('https://github.com/AntonChubarov/goit-microservice-project.git') }
-                        branches('lesson-8-9')
-                      }
+              job('seed-job') {
+                description('Job to generate pipeline for Django project')
+                scm {
+                  git {
+                    remote {
+                      url('${github_repo_url}')
+                      credentials('github-token')
                     }
-                    scriptPath('Jenkinsfile')
+                    branches('*/lesson-9')
                   }
                 }
-                triggers { scm('H/5 * * * *') }
+                steps {
+                  dsl {
+                    text('''
+                      pipelineJob("goit-django-docker") {
+                        definition {
+                          cpsScm {
+                            scm {
+                              git {
+                                remote {
+                                  url("${github_repo_url}")
+                                  credentials("github-token")
+                                }
+                                branches("*/lesson-9")
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ''')
+                  }
+                }
               }

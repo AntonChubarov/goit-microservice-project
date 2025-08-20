@@ -1,40 +1,39 @@
+# Створюємо маршрутну таблицю для публічних підмереж
 resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.this.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.this.id
-  }
-
+  vpc_id = aws_vpc.main.id  # Прив'язуємо таблицю до нашої VPC
   tags = {
-    Name = "${var.vpc_name}-public-rt"
+    Name = "${var.vpc_name}-public-rt"  # Тег для таблиці маршрутів
   }
 }
-
+# Додаємо маршрут для виходу в інтернет через Internet Gateway
+resource "aws_route" "public_internet" {
+  route_table_id         = aws_route_table.public.id    # ID таблиці маршрутів
+  destination_cidr_block = "0.0.0.0/0"                  # Всі IP-адреси
+  gateway_id             = aws_internet_gateway.igw.id  # Вказуємо Internet Gateway як вихід
+}
+# Прив'язуємо таблицю маршрутів до публічних підмереж
 resource "aws_route_table_association" "public" {
-  for_each       = aws_subnet.public
-  subnet_id      = each.value.id
+  count          = length(var.public_subnets)  # Прив'язуємо кожну підмережу
+  subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public.id
 }
-
-resource "aws_route_table" "private" {
-  vpc_id = aws_vpc.this.id
-
-  dynamic "route" {
-    for_each = var.enable_nat_gateway ? [1] : []
-    content {
-      cidr_block     = "0.0.0.0/0"
-      nat_gateway_id = aws_nat_gateway.this[0].id
-    }
-  }
-
-  tags = {
-    Name = "${var.vpc_name}-private-rt"
-  }
-}
-
-resource "aws_route_table_association" "private" {
-  for_each       = aws_subnet.private
-  subnet_id      = each.value.id
-  route_table_id = aws_route_table.private.id
-}
+## Створюємо маршрутну таблицю для приватних підмереж
+#resource "aws_route_table" "private" {
+#  vpc_id = aws_vpc.main.id
+#
+#  route {
+#    cidr_block     = "0.0.0.0/0"
+#    nat_gateway_id = aws_nat_gateway.nat.id
+#  }
+#
+#  tags = {
+#    Name = "${var.vpc_name}-private-rt"
+#  }
+#}
+#
+## Прив'язуємо таблицю маршрутів до приватних підмереж
+#resource "aws_route_table_association" "private" {
+#  count          = length(var.private_subnets)
+#  subnet_id      = aws_subnet.private[count.index].id
+#  route_table_id = aws_route_table.private.id
+#}

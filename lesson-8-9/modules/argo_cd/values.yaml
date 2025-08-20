@@ -1,33 +1,4 @@
-installCRDs: true
-
-global:
-  image:
-    repository: "quay.io/argoproj/argocd"
-    tag: "v2.11.3"
-    imagePullPolicy: IfNotPresent
-
 server:
-  insecure: true
   service:
     type: LoadBalancer
-    ports:
-      http: 80
-      https: 443
-  extraArgs:
-    - --insecure
-
-configs:
-  params:
-    server.insecure: true
-
-applicationSet:
-  enabled: true
-
-controller:
-  replicas: 1
-
-repoServer:
-  replicas: 1
-
-dex:
-  enabled: false
+    port: 443

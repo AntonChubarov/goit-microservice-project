@@ -1,107 +1,177 @@
 #!/bin/sh
 set -eu
+# POSIX-only: no "pipefail"
 
-# --- Resolve paths ---
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TF_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# ==========================================================
+# deploy.sh
+# 1) Create base infra (VPC, ECR, EKS) with Terraform targets
+# 2) Build Django image locally from ./django and push to ECR (latest + timestamp)
+# 3) Apply full Terraform (Jenkins, Argo CD, etc.)
+# 4) Install metrics-server and print LB URLs
+#
+# Usage:
+#   GITHUB_USERNAME=... GITHUB_TOKEN=... ./scripts/deploy.sh
+# ==========================================================
 
-JENKINS_NS="${JENKINS_NS:-jenkins}"
-ARGOCD_NS="${ARGOCD_NS:-argocd}"
-AWS_REGION="${AWS_REGION:-us-east-1}"
+# ---- required envs ----
+: "${GITHUB_USERNAME:?Set GITHUB_USERNAME, e.g. GITHUB_USERNAME=me}"
+: "${GITHUB_TOKEN:?Set GITHUB_TOKEN, e.g. GITHUB_TOKEN=ghp_xxx}"
 
-# Wait controls for LoadBalancer provisioning
-LB_WAIT_SECS="${LB_WAIT_SECS:-480}"
-LB_POLL_SECS="${LB_POLL_SECS:-10}"
+# ---- fixed region (as requested) ----
+REGION="us-east-1"
+export AWS_REGION="${REGION}"
+export AWS_DEFAULT_REGION="${REGION}"
 
-# --- Prompt for GitHub creds (or take from env) ---
-if [ -z "${GITHUB_USERNAME:-}" ]; then
-  printf "GitHub username: "
-  IFS= read -r GITHUB_USERNAME
-fi
-if [ -z "${GITHUB_TOKEN:-}" ]; then
-  printf "GitHub token (input hidden): "
-  stty -echo
-  IFS= read -r GITHUB_TOKEN
-  stty echo
-  printf "\n"
-fi
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
+cd "${ROOT_DIR}"
 
-export GITHUB_USERNAME GITHUB_TOKEN
+# Paths for local Django build
+DOCKER_CONTEXT="${ROOT_DIR}/django"
+DOCKERFILE_PATH="${DOCKER_CONTEXT}/Dockerfile"
 
-# --- Terraform apply ---
-terraform -chdir="$TF_DIR" init -upgrade
-terraform -chdir="$TF_DIR" apply -auto-approve
-
-# --- Update kubeconfig for the created/updated cluster ---
-if command -v aws >/dev/null 2>&1; then
-  EKS_CLUSTER_NAME="$(terraform -chdir="$TF_DIR" output -raw eks_cluster_name)"
-  aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME" >/dev/null
+if [ ! -f "${DOCKERFILE_PATH}" ]; then
+  echo "ERROR: Dockerfile not found at ${DOCKERFILE_PATH}"
+  exit 1
 fi
 
-# --- Helper: print service URL once LB is up ---
-print_svc_url () {
-  _ns="$1"; _svc="$2"
-  echo "Waiting for LoadBalancer for ${_svc} in ${_ns} ..."
-  SECS=0
-  while [ $SECS -lt "$LB_WAIT_SECS" ]; do
-    if EXTERNAL_HOST="$(kubectl -n "$_ns" get svc "$_svc" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)"; then
-      if [ -n "${EXTERNAL_HOST:-}" ] && [ "$EXTERNAL_HOST" != "<pending>" ]; then
-        echo "https://${EXTERNAL_HOST}"
-        return 0
-      fi
+# Tool checks
+if ! command -v docker >/dev/null 2>&1; then echo "ERROR: docker CLI not found"; exit 1; fi
+if ! command -v terraform >/dev/null 2>&1; then echo "ERROR: terraform CLI not found"; exit 1; fi
+if ! command -v aws >/dev/null 2>&1; then echo "ERROR: aws CLI not found"; exit 1; fi
+
+# ---- derive repo URL for Argo/Jenkins secrets (prefer HTTPS) ----
+ORIGIN_URL="$(git -C "${ROOT_DIR}" remote get-url origin 2>/dev/null || true)"
+to_https() {
+  case "$1" in
+    git@github.com:*) printf '%s\n' "https://github.com/${1#git@github.com:}" ;;
+    https://github.com/*|http://github.com/*) printf '%s\n' "$1" ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+GITHUB_REPO_URL="$(to_https "${ORIGIN_URL}")"
+
+# Make them visible to Terraform
+export TF_VAR_github_user="${GITHUB_USERNAME}"
+export TF_VAR_github_pat="${GITHUB_TOKEN}"
+export TF_VAR_github_repo_url="${GITHUB_REPO_URL}"
+
+echo "== Region: ${REGION} =="
+
+# ----------------------------------------------------------
+# 0) Terraform init
+# ----------------------------------------------------------
+echo "== Terraform init =="
+terraform -chdir="${ROOT_DIR}" init -upgrade
+
+# ----------------------------------------------------------
+# 1) Base infra only (VPC + ECR + EKS) so we can push image
+# ----------------------------------------------------------
+echo "== Terraform apply (base infra: VPC/ECR/EKS) =="
+terraform -chdir="${ROOT_DIR}" apply -auto-approve \
+  -target=module.vpc \
+  -target=module.ecr \
+  -target=module.eks
+
+# Pull outputs we need
+ECR_REPO_URL="$(terraform -chdir="${ROOT_DIR}" output -raw ecr_repository_url)"
+EKS_CLUSTER_NAME="$(terraform -chdir="${ROOT_DIR}" output -raw eks_cluster_name)"
+
+if [ -z "${ECR_REPO_URL}" ]; then
+  echo "ERROR: ECR repository URL output is empty"
+  exit 1
+fi
+
+# ----------------------------------------------------------
+# 2) Build & push initial Django image (latest + timestamp)
+# ----------------------------------------------------------
+echo "== Docker login to ECR (${REGION}) =="
+REGISTRY_HOST="$(printf "%s" "${ECR_REPO_URL}" | cut -d'/' -f1)"
+aws ecr get-login-password --region "${REGION}" \
+  | docker login --username AWS --password-stdin "${REGISTRY_HOST}"
+
+IMAGE_TAG="$(date +%Y%m%d%H%M%S)"
+echo "== Building image from ${DOCKER_CONTEXT} =="
+docker build -f "${DOCKERFILE_PATH}" \
+  -t "${ECR_REPO_URL}:latest" \
+  -t "${ECR_REPO_URL}:${IMAGE_TAG}" \
+  "${DOCKER_CONTEXT}"
+
+echo "== Pushing ${ECR_REPO_URL}:latest =="
+docker push "${ECR_REPO_URL}:latest"
+echo "== Pushing ${ECR_REPO_URL}:${IMAGE_TAG} =="
+docker push "${ECR_REPO_URL}:${IMAGE_TAG}"
+
+echo "${IMAGE_TAG}" > "${ROOT_DIR}/.initial_image_tag"
+echo "Wrote initial image tag to ${ROOT_DIR}/.initial_image_tag"
+
+# ----------------------------------------------------------
+# 3) Full Terraform (Jenkins, Argo CD, CSI addons, etc.)
+# ----------------------------------------------------------
+echo "== Terraform apply (full stack) =="
+terraform -chdir="${ROOT_DIR}" apply -auto-approve
+
+# ----------------------------------------------------------
+# 4) Kubeconfig, metrics-server, readiness checks, URLs
+# ----------------------------------------------------------
+echo "== Update kubeconfig for ${EKS_CLUSTER_NAME} =="
+aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --region "${REGION}" >/dev/null
+
+echo "== Install/upgrade metrics-server =="
+if ! helm repo list 2>/dev/null | grep -q metrics-server; then
+  helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server >/dev/null
+fi
+helm repo update >/dev/null
+helm upgrade --install metrics-server metrics-server/metrics-server -n kube-system --create-namespace >/dev/null
+
+# Wait for Jenkins controller
+JENKINS_NS="jenkins"
+echo "== Waiting for Jenkins rollout =="
+if ! kubectl -n "${JENKINS_NS}" rollout status statefulset/jenkins --timeout=15m; then
+  echo "ERROR: Jenkins StatefulSet failed to roll out"
+  POD="$(kubectl -n "${JENKINS_NS}" get pods -l app.kubernetes.io/component=jenkins-controller -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  if [ -n "${POD}" ]; then
+    kubectl -n "${JENKINS_NS}" describe pod "${POD}" || true
+    kubectl -n "${JENKINS_NS}" logs "${POD}" -c jenkins --tail=200 || true
+  fi
+  exit 1
+fi
+
+# In-cluster HTTP probe (service listens on 80 per chart values)
+echo "== Verifying Jenkins in-cluster HTTP =="
+kubectl -n "${JENKINS_NS}" run jx-http-check --rm -i --restart=Never --image=curlimages/curl:8.8.0 -- \
+  sh -lc 'for i in $(seq 1 60); do c=$(curl -s -o /dev/null -w "%{http_code}" http://jenkins.jenkins.svc.cluster.local/login); case "$c" in 200|302|403) echo "HTTP $c"; exit 0;; esac; sleep 5; done; echo TIMEOUT; exit 1'
+
+print_lb() {
+  NS="$1"; SVC="$2"; SCHEME="$3" # http or https
+  echo "Waiting for ${SVC}.${NS} LoadBalancer..."
+  i=1
+  while [ "$i" -le 60 ]; do
+    HN="$(kubectl -n "${NS}" get svc "${SVC}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname]' 2>/dev/null || true)"
+    IP="$(kubectl -n "${NS}" get svc "${SVC}" -o jsonpath='{.status.loadBalancer.ingress[0].ip]' 2>/dev/null || true)"
+    if [ -n "${HN}" ] && [ "${HN}" != "<pending>" ]; then
+      echo "${SCHEME}://${HN}"
+      return 0
     fi
-    SECS=$((SECS + LB_POLL_SECS))
-    sleep "$LB_POLL_SECS"
+    if [ -n "${IP}" ]; then
+      echo "${SCHEME}://${IP}"
+      return 0
+    fi
+    i=$((i+1))
+    sleep 5
   done
-  echo "(LoadBalancer for ${_svc} not ready after ${LB_WAIT_SECS}s)"
+  echo "(still pending)"
   return 1
 }
 
-# --- Print URLs ---
-echo "\n== URLs =="
-echo "Jenkins: $(print_svc_url "$JENKINS_NS" jenkins || true)"
-echo "Argo CD: $(print_svc_url "$ARGOCD_NS" argocd-server || true)"
-echo "== End URLs ==\n"
+echo "== Service URLs =="
+JENKINS_URL="$(print_lb jenkins jenkins http | tail -n1)"
+ARGO_URL="$(print_lb argocd argocd-server https | tail -n1)"
+echo "Jenkins: ${JENKINS_URL}"
+echo "Argo CD: ${ARGO_URL}"
 
-# --- New: Jenkins diagnostics (init container logs) ---
-say() { printf '%s\n' "$*"; }
+# Helpful hint to fetch Argo CD admin password (module outputs a ready-to-run command)
+echo "Argo CD admin password command:"
+terraform -chdir="${ROOT_DIR}" output -raw argocd_admin_password || true
 
-find_jenkins_pod () {
-  # Try common selectors used by the official chart
-  kubectl -n "$JENKINS_NS" get pods -l app.kubernetes.io/component=jenkins-controller -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || \
-  kubectl -n "$JENKINS_NS" get pods -l app.kubernetes.io/instance=jenkins -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true
-}
-
-dump_jenkins_init_logs () {
-  POD="$(find_jenkins_pod)"
-  if [ -z "${POD:-}" ]; then
-    say "Jenkins pod not found in namespace ${JENKINS_NS}"
-    return 0
-  fi
-
-  say "\n== Jenkins pod: ${POD} =="
-  kubectl -n "$JENKINS_NS" get pod "$POD" -o wide || true
-
-  INIT_LIST="$(kubectl -n "$JENKINS_NS" get pod "$POD" -o jsonpath='{.spec.initContainers[*].name}' 2>/dev/null || true)"
-  if [ -n "${INIT_LIST:-}" ]; then
-    say "\n== Init containers =="
-    for c in $INIT_LIST; do
-      say "\n--- logs (init container: $c) ---"
-      kubectl -n "$JENKINS_NS" logs "$POD" -c "$c" --tail=200 || true
-    done
-  else
-    say "No init containers reported."
-  fi
-
-  say "\n--- logs (main container: jenkins, last 300 lines) ---"
-  kubectl -n "$JENKINS_NS" logs "$POD" -c jenkins --tail=300 || true
-
-  say "\n--- describe pod (events) ---"
-  kubectl -n "$JENKINS_NS" describe pod "$POD" || true
-}
-
-# Give the pod a little time to appear, then always dump init logs to help debugging
-sleep 20
-dump_jenkins_init_logs
-
-echo "\nDeployment complete."
+echo "✅ Deployment complete. Region=${REGION}. ECR image pushed as: ${ECR_REPO_URL}:latest and :${IMAGE_TAG}"
