@@ -1,5 +1,5 @@
 image:
-  repository: 458845291257.dkr.ecr.us-east-1.amazonaws.com/ecr-repo-18062025214500
+  repository: 458845291257.dkr.ecr.us-east-1.amazonaws.com/ecr-repo-lesson-8-9
   tag: latest
   pullPolicy: IfNotPresent
 #  pullPolicy: Always
