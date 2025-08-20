@@ -7,11 +7,11 @@ variable "region" {
 variable "cluster_name" {
   description = "Name of the EKS cluster"
   type        = string
-  default     = "eks-cluster-alex"
+  default     = "eks-cluster-lesson-8-9"
 }
 
 variable "vpc_name" {
-  default = "vpc-alex"
+  default = "vpc-lesson-8-9"
 }
 
 variable "instance_type" {

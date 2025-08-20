@@ -103,6 +103,7 @@ echo "Wrote initial image tag to ${ROOT_DIR}/.initial_image_tag"
 
 # ----------------------------------------------------------
 # 3) Update REMOTE GitHub chart values to use this ECR + latest
+#     NOTE: all files live under the lesson-8-9/ folder
 # ----------------------------------------------------------
 TMP_DIR="$(mktemp -d)"
 cleanup() { rm -rf "${TMP_DIR}"; }
@@ -112,13 +113,12 @@ echo "== Syncing chart values in ${GITHUB_REPO_URL} (${GITHUB_BRANCH}) =="
 git -C "${TMP_DIR}" clone \
   "https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/AntonChubarov/goit-microservice-project.git" repo >/dev/null 2>&1
 cd "${TMP_DIR}/repo"
-# Ensure branch exists locally (will fail if the remote branch doesn't exist)
 git checkout "${GITHUB_BRANCH}"
 
-VALUES_FILE="charts/django-app/values.yaml"
+VALUES_FILE="lesson-8-9/charts/django-app/values.yaml"
 [ -f "${VALUES_FILE}" ] || { echo "ERROR: ${VALUES_FILE} not found in remote repo"; exit 1; }
 
-# Replace repository and tag lines
+# Replace repository and tag lines in values.yaml
 #   image:
 #     repository: <ECR_REPO_URL>
 #     tag: latest

@@ -10,7 +10,8 @@ pipelineJob("goit-django-docker") {
           branches("*/lesson-8-9")
         }
       }
-      scriptPath("Jenkinsfile")
+      // Jenkinsfile lives under lesson-8-9/
+      scriptPath("lesson-8-9/Jenkinsfile")
     }
   }
 }
