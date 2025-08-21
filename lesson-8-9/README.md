@@ -41,6 +41,7 @@ sh ./scripts/aws_kubeconfig.sh
 Updates kubeconfig for the EKS cluster from Terraform outputs to access through kubectl, k9s, etc.
 
 ### 5) Destroy everything
+***Unstable! Check manually after!***
 ```shell
 sh ./scripts/destroy.sh
 ```
