@@ -1,0 +1,29 @@
+applications:
+  - name: example-app
+    namespace: default
+    project: default
+    source:
+      repoURL: https://github.com/AntonChubarov/goit-microservice-project.git
+      # All deployable content is inside the lesson-8-9 folder in the repo:
+      path: lesson-8-9/charts/django-app
+      targetRevision: lesson-8-9
+      helm:
+        valueFiles:
+          - values.yaml
+    destination:
+      server: https://kubernetes.default.svc
+      namespace: default
+    syncPolicy:
+      automated:
+        prune: true
+        selfHeal: true
+
+repositories:
+  - name: example-app
+    url: ${github_repo_url}
+    username: ${github_user}
+    password: ${github_pat}
+
+repoConfig:
+  insecure: "true"
+  enableLfs: "true"

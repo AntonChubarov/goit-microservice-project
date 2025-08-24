@@ -1,0 +1,19 @@
+image:
+  repository: 458845291257.dkr.ecr.us-east-1.amazonaws.com/ecr-repo-lesson-8-9
+  tag: latest
+  pullPolicy: IfNotPresent
+#  pullPolicy: Always
+
+service:
+  type: LoadBalancer
+  port: 8000
+
+ingress:
+  enabled: false
+
+#config:
+#  POSTGRES_HOST: db
+#  POSTGRES_PORT: 5432
+#  POSTGRES_DB: django_db
+#  POSTGRES_USER: django_user
+#  POSTGRES_PASSWORD: pass123
