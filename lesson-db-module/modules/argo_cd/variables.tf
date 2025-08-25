@@ -26,7 +26,7 @@ variable "rds_username" {
   nullable    = false
 
   validation {
-    condition     = length(trim(var.rds_username)) > 0
+    condition     = length(trimspace(var.rds_username)) > 0
     error_message = "rds_username must be a non-empty string."
   }
 }
@@ -37,7 +37,7 @@ variable "rds_db_name" {
   nullable    = false
 
   validation {
-    condition     = length(trim(var.rds_db_name)) > 0
+    condition     = length(trimspace(var.rds_db_name)) > 0
     error_message = "rds_db_name must be a non-empty string."
   }
 }
@@ -49,7 +49,7 @@ variable "rds_password" {
   nullable    = false
 
   validation {
-    condition     = length(trim(var.rds_password)) > 0
+    condition     = length(trimspace(var.rds_password)) > 0
     error_message = "rds_password must be provided (non-empty)."
   }
 }

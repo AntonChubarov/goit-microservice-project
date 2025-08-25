@@ -14,11 +14,22 @@ need helm
 
 echo "== Region: ${REGION} =="
 
-# ---- optional GitHub vars ----
+# ---- never prompt interactively ----
+export TF_INPUT=0
+
+# ---- optional GitHub vars (dummy defaults) ----
 export TF_VAR_github_user="${TF_VAR_github_user:-dummy-user}"
 export TF_VAR_github_pat="${TF_VAR_github_pat:-dummy-token}"
 export TF_VAR_github_repo_url="${TF_VAR_github_repo_url:-https://example.invalid/dummy.git}"
 export TF_VAR_region="${TF_VAR_region:-$REGION}"
+
+# ---- ensure all ArgoCD module DB vars are present (dummy, non-empty) ----
+# These prevent Terraform from prompting during targeted/full destroy.
+export TF_VAR_rds_username="${TF_VAR_rds_username:-postgres}"
+export TF_VAR_rds_db_name="${TF_VAR_rds_db_name:-myapp}"
+export TF_VAR_rds_password="${TF_VAR_rds_password:-SamplePassw0rd123!}"
+# Must look like a hostname (optionally with :port) to satisfy validation.
+export TF_VAR_rds_endpoint="${TF_VAR_rds_endpoint:-dummy.example.com}"
 
 echo "== Terraform init =="
 terraform -chdir="${ROOT_DIR}" init -upgrade
