@@ -5,7 +5,7 @@
 #
 #  tags = {
 #    Name        = "Terraform State Bucket"
-#    Environment = "lesson-5"
+#    Environment = "lesson-db-module"
 #  }
 #}
 #

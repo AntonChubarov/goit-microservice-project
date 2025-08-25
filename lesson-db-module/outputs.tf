@@ -139,3 +139,10 @@ output "argocd_url" {
   description = "External URL for Argo CD"
   value       = "http://${try(data.kubernetes_service.argocd_server.status[0].load_balancer[0].ingress[0].hostname, try(data.kubernetes_service.argocd_server.status[0].load_balancer[0].ingress[0].ip, ""))}"
 }
+
+#-------------RDS-----------------
+
+output "rds_endpoint" {
+  description = "RDS endpoint for connecting to the database"
+  value       = module.rds.rds_endpoint
+}

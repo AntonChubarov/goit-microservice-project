@@ -4,12 +4,18 @@ applications:
     project: default
     source:
       repoURL: https://github.com/AntonChubarov/goit-microservice-project.git
-      # All deployable content is inside the lesson-8-9 folder in the repo:
-      path: lesson-8-9/charts/django-app
-      targetRevision: lesson-8-9
+      # All deployable content is inside the lesson-db-module folder in the repo:
+      path: lesson-db-module/charts/django-app
+      targetRevision: lesson-db-module
       helm:
         valueFiles:
           - values.yaml
+        values: |
+          config:
+            POSTGRES_HOST: "${rds_host}"
+            POSTGRES_USER: "${rds_username}"
+            POSTGRES_NAME: "${rds_db_name}"
+            POSTGRES_PASSWORD: "${rds_password}"
     destination:
       server: https://kubernetes.default.svc
       namespace: default

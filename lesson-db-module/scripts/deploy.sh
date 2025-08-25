@@ -6,7 +6,7 @@ set -eu
 # deploy.sh
 # 1) Create base infra (VPC, ECR, EKS) with Terraform targets
 # 2) Build Django image locally from ./django and push to ECR (latest + timestamp)
-# 3) Commit image repo/tag to the remote GitHub chart (lesson-8-9) and push
+# 3) Commit image repo/tag to the remote GitHub chart (lesson-db-module) and push
 # 4) Apply full Terraform (Jenkins, Argo CD, etc.)
 # 5) Print Terraform outputs for Jenkins & Argo CD URLs
 #
@@ -29,7 +29,7 @@ export AWS_REGION="$REGION"
 export AWS_DEFAULT_REGION="$REGION"
 
 GITHUB_REPO_URL="https://github.com/AntonChubarov/goit-microservice-project.git"
-GITHUB_BRANCH="lesson-8-9"
+GITHUB_BRANCH="lesson-db-module"
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
@@ -115,7 +115,7 @@ git -C "${TMP_DIR}" clone \
 cd "${TMP_DIR}/repo"
 git checkout "${GITHUB_BRANCH}"
 
-VALUES_FILE="lesson-8-9/charts/django-app/values.yaml"
+VALUES_FILE="lesson-db-module/charts/django-app/values.yaml"
 [ -f "${VALUES_FILE}" ] || { echo "ERROR: ${VALUES_FILE} not found in remote repo"; exit 1; }
 
 # Replace repository and tag lines in values.yaml

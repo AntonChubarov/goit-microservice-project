@@ -7,10 +7,10 @@ pipelineJob("goit-django-docker") {
             url("https://github.com/AntonChubarov/goit-microservice-project.git")
             credentials("github-token")
           }
-          branches("*/lesson-8-9")
+          branches("*/lesson-db-module")
         }
       }
-      scriptPath("lesson-8-9/Jenkinsfile")
+      scriptPath("lesson-db-module/Jenkinsfile")
     }
   }
 }

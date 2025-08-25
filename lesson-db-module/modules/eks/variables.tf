@@ -1,11 +1,11 @@
 variable "region" {
   description = "AWS region for deployment"
-  default     = "eu-central-1"
+  default     = "us-east-1"
 }
 
 variable "cluster_name" {
   description = "Name of the EKS cluster"
-  default     = "eks-cluster-lesson-8-9"
+  default     = "eks-cluster-lesson-db-module"
 }
 
 variable "subnet_ids" {
@@ -15,7 +15,7 @@ variable "subnet_ids" {
 
 variable "node_group_name" {
   description = "Name of the node group"
-  default     = "node-group-lesson-8-9"
+  default     = "node-group-lesson-db-module"
 }
 
 variable "instance_type" {
