@@ -15,13 +15,18 @@ resource "helm_release" "argo_cd" {
 }
 
 locals {
+  # rds_endpoint often includes :5432; we only want the hostname
   rds_host = split(":", var.rds_endpoint)[0]
 
-  rendered_values = templatefile("${path.module}/charts/values.tpl", {
-    rds_host     = local.rds_host
-    rds_username = var.rds_username
-    rds_db_name  = var.rds_db_name
-    rds_password = var.rds_password
+  # IMPORTANT: render charts/values.yaml and provide ALL placeholders it references
+  rendered_values = templatefile("${path.module}/charts/values.yaml", {
+    rds_host        = local.rds_host
+    rds_username    = var.rds_username
+    rds_db_name     = var.rds_db_name
+    rds_password    = var.rds_password
+    github_repo_url = var.github_repo_url
+    github_user     = var.github_user
+    github_pat      = var.github_pat
   })
 }
 
@@ -35,4 +40,3 @@ resource "helm_release" "argo_apps" {
   values     = [local.rendered_values]
   depends_on = [helm_release.argo_cd]
 }
-

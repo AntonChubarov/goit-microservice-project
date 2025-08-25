@@ -52,7 +52,12 @@ export TF_VAR_github_repo_url="$GITHUB_REPO_URL"
 # Ensure region variable is us-east-1 if root module uses var.region
 export TF_VAR_region="$REGION"
 
+# ---- NEW: provide non-interactive RDS password to avoid TF prompt ----
+# Override by exporting TF_VAR_rds_password before running this script.
+export TF_VAR_rds_password="${TF_VAR_rds_password:-SamplePassw0rd123!}"
+
 echo "== Region: ${REGION} =="
+echo "== Using non-interactive RDS password via TF_VAR_rds_password (sample default set) =="
 
 # ----------------------------------------------------------
 # 0) Terraform init
