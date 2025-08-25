@@ -11,11 +11,36 @@ applications:
         valueFiles:
           - values.yaml
         values: |
+          # --- IMPORTANT: turn off any bundled PostgreSQL chart so the app won't
+          # try to resolve 'django-postgresql' in-cluster ---
+          postgresql:
+            enabled: false
+
+          # --- App config (preserves your original keys) ---
           config:
             POSTGRES_HOST: "${rds_host}"
+            POSTGRES_PORT: "5432"
             POSTGRES_USER: "${rds_username}"
             POSTGRES_NAME: "${rds_db_name}"
             POSTGRES_PASSWORD: "${rds_password}"
+            # Optional: many Django setups also accept DATABASE_URL
+            DATABASE_URL: "postgres://${rds_username}:${rds_password}@${rds_host}:5432/${rds_db_name}"
+
+          # --- Chart-agnostic env injection (covers templates that expect 'env') ---
+          env:
+            - name: POSTGRES_HOST
+              value: "${rds_host}"
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_USER
+              value: "${rds_username}"
+            - name: POSTGRES_NAME
+              value: "${rds_db_name}"
+            - name: POSTGRES_PASSWORD
+              value: "${rds_password}"
+            - name: DATABASE_URL
+              value: "postgres://${rds_username}:${rds_password}@${rds_host}:5432/${rds_db_name}"
+
     destination:
       server: https://kubernetes.default.svc
       namespace: default

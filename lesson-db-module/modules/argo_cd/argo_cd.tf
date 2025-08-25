@@ -2,23 +2,22 @@ resource "helm_release" "argo_cd" {
   name         = var.name
   namespace    = var.namespace
   repository   = "https://argoproj.github.io/argo-helm"
-  replace      = true
-  force_update = true
   chart        = "argo-cd"
   version      = var.chart_version
+  replace      = true
+  force_update = true
+  create_namespace = true
 
   values = [
     file("${path.module}/values.yaml")
   ]
-
-  create_namespace = true
 }
 
 locals {
-  # rds_endpoint often includes :5432; we only want the hostname
+  # If rds_endpoint looks like "xxx.rds.amazonaws.com:5432", strip the port:
   rds_host = split(":", var.rds_endpoint)[0]
 
-  # IMPORTANT: render charts/values.yaml and provide ALL placeholders it references
+  # Render the apps-of-apps values with ALL placeholders required by the template.
   rendered_values = templatefile("${path.module}/charts/values.yaml", {
     rds_host        = local.rds_host
     rds_username    = var.rds_username
