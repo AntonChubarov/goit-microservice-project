@@ -19,14 +19,12 @@ provider "aws" {
   region = var.region
 }
 
-# module "s3_backend" { ... }  # optional
-
 module "vpc" {
   source             = "./modules/vpc"
   vpc_cidr_block     = "10.0.0.0/16"
   public_subnets     = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
   private_subnets    = ["10.0.4.0/24", "10.0.5.0/24", "10.0.6.0/24"]
-  availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c"] # <-- updated to us-east-1
+  availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c"]
   vpc_name           = var.vpc_name
   name               = var.name
 }
@@ -86,17 +84,6 @@ module "jenkins" {
   }
 }
 
-module "argo_cd" {
-  source        = "./modules/argo_cd"
-  namespace     = "argocd"
-  chart_version = "5.46.4"
-  depends_on    = [module.eks]
-  rds_db_name   = var.rds_database_name
-  rds_username  = var.rds_username
-  rds_password  = var.rds_password
-  rds_endpoint  = module.rds.rds_endpoint
-}
-
 module "rds" {
   source = "./modules/rds"
 
@@ -105,13 +92,12 @@ module "rds" {
   aurora_instance_count = 2
   vpc_cidr_block        = module.vpc.vpc_cidr_block
 
-  # --- Aurora-only ---
+  # Aurora
   engine_cluster                = var.rds_aurora_engine
   engine_version_cluster        = var.rds_aurora_engine_version
   parameter_group_family_aurora = var.rds_aurora_parameter_group_family
 
-
-  # --- RDS-only ---
+  # RDS instance (unused if use_aurora=true)
   engine                     = var.rds_instance_engine
   engine_version             = var.rds_instance_engine_version
   parameter_group_family_rds = var.rds_instance_parameter_group_family
@@ -137,7 +123,21 @@ module "rds" {
     Environment = "dev"
     Project     = var.name
   }
-  depends_on = [
-    module.vpc
-  ]
+
+  depends_on = [module.vpc]
+}
+
+# IMPORTANT: ensure Argo (and the app) deploys only after RDS exists
+module "argo_cd" {
+  source        = "./modules/argo_cd"
+  namespace     = "argocd"
+  chart_version = "5.46.4"
+
+  depends_on    = [module.eks, module.rds]
+
+  # Values passed into Argo apps-of-apps
+  rds_db_name   = var.rds_database_name
+  rds_username  = var.rds_username
+  rds_password  = var.rds_password
+  rds_endpoint  = module.rds.rds_endpoint
 }

@@ -4,27 +4,27 @@ applications:
     project: default
     source:
       repoURL: https://github.com/AntonChubarov/goit-microservice-project.git
-      # All deployable content is inside the lesson-db-module folder in the repo:
+      # Deploys your app chart from the lesson-db-module folder:
       path: lesson-db-module/charts/django-app
       targetRevision: lesson-db-module
       helm:
         valueFiles:
           - values.yaml
         values: |
-          # Disable bundled PostgreSQL; we point to RDS instead.
+          # Use external RDS instead of bundled Postgres
           postgresql:
             enabled: false
 
-          # App config -> becomes a ConfigMap and then env via envFrom.
+          # App env (ConfigMap -> envFrom)
           config:
             POSTGRES_HOST: "${rds_host}"
             POSTGRES_PORT: "5432"
             POSTGRES_USER: "${rds_username}"
-            POSTGRES_NAME: "${rds_db_name}"
+            POSTGRES_DB:   "${rds_db_name}"
+            POSTGRES_NAME: "${rds_db_name}"   # back-compat
             POSTGRES_PASSWORD: "${rds_password}"
-            # Provide both, since your logs look for POSTGRES_URL and many libs use DATABASE_URL.
-            POSTGRES_URL: "postgres://${rds_username}:${rds_password}@${rds_host}:5432/${rds_db_name}"
-            DATABASE_URL: "postgres://${rds_username}:${rds_password}@${rds_host}:5432/${rds_db_name}"
+            POSTGRES_URL:  "postgres://${rds_username}:${rds_password}@${rds_host}:5432/${rds_db_name}"
+            DATABASE_URL:  "postgres://${rds_username}:${rds_password}@${rds_host}:5432/${rds_db_name}"
 
     destination:
       server: https://kubernetes.default.svc

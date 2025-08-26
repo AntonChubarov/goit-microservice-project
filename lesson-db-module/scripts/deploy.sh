@@ -3,27 +3,27 @@ set -eu
 # POSIX-only: no pipefail
 
 # ==========================================================
-# deploy.sh
-# 1) Create base infra (VPC, ECR, EKS) with Terraform targets
-# 2) Build Django image locally from ./django and push to ECR (latest + timestamp)
-# 3) Commit image repo/tag to the remote GitHub chart (lesson-db-module) and push
-# 4) Apply full Terraform (Jenkins, Argo CD, etc.)
-# 5) Print Terraform outputs for Jenkins & Argo CD URLs
+# deploy.sh (idempotent)
+# - Base infra (VPC/ECR/EKS)
+# - Build & push Django image
+# - Update REMOTE chart values.yaml (image.* always; DB envs optional)
+# - Full Terraform apply (Jenkins, Argo CD, etc.)
+# - Print service URLs
 #
 # Usage:
 #   GITHUB_USERNAME=... GITHUB_TOKEN=... ./scripts/deploy.sh
 #
+# Flags (optional):
+#   UPDATE_REMOTE_DB_VALUES=true   # also write DB envs to remote chart (requires yq; beware secrets!)
+#
 # Notes:
-#   - Default AWS profile must be configured; this script uses it implicitly.
-#   - Region hardcoded to us-east-1 (per request).
-#   - If values.yaml already points to the same ECR+tag, commit/push is skipped.
+#   - Region pinned to us-east-1.
+#   - DB updates pull from Terraform outputs when available.
 # ==========================================================
 
-# ---- required envs ----
 : "${GITHUB_USERNAME:?Set GITHUB_USERNAME, e.g. GITHUB_USERNAME=me}"
 : "${GITHUB_TOKEN:?Set GITHUB_TOKEN, e.g. GITHUB_TOKEN=ghp_xxx}"
 
-# ---- constants (per request) ----
 REGION="us-east-1"
 export AWS_REGION="$REGION"
 export AWS_DEFAULT_REGION="$REGION"
@@ -31,11 +31,12 @@ export AWS_DEFAULT_REGION="$REGION"
 GITHUB_REPO_URL="https://github.com/AntonChubarov/goit-microservice-project.git"
 GITHUB_BRANCH="lesson-db-module"
 
+UPDATE_REMOTE_DB_VALUES="${UPDATE_REMOTE_DB_VALUES:-false}"   # default: don't commit DB secrets to Git
+
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
-# Tool checks
 need() { command -v "$1" >/dev/null 2>&1 || { echo "ERROR: '$1' not found"; exit 1; }; }
 need docker
 need terraform
@@ -43,21 +44,24 @@ need aws
 need kubectl
 need helm
 need git
-need sed
+# yq optional; used when present
 
-# Tell Terraform about GitHub creds/repo for Jenkins/Argo modules
+mask() { printf "%s" "$1" | sed 's/./*/g'; }
+
+# Make TF know GH creds and region
 export TF_VAR_github_user="$GITHUB_USERNAME"
 export TF_VAR_github_pat="$GITHUB_TOKEN"
 export TF_VAR_github_repo_url="$GITHUB_REPO_URL"
-# Ensure region variable is us-east-1 if root module uses var.region
 export TF_VAR_region="$REGION"
 
-# ---- NEW: provide non-interactive RDS password to avoid TF prompt ----
-# Override by exporting TF_VAR_rds_password before running this script.
+# Non-interactive default; override by exporting TF_VAR_rds_password
 export TF_VAR_rds_password="${TF_VAR_rds_password:-SamplePassw0rd123!}"
 
 echo "== Region: ${REGION} =="
-echo "== Using non-interactive RDS password via TF_VAR_rds_password (sample default set) =="
+echo "== Using TF_VAR_rds_password (hidden) =="
+
+# Helper: safe terraform output
+tf_out() { terraform -chdir="${ROOT_DIR}" output -raw "$1" 2>/dev/null || true; }
 
 # ----------------------------------------------------------
 # 0) Terraform init
@@ -66,7 +70,7 @@ echo "== Terraform init =="
 terraform -chdir="${ROOT_DIR}" init -upgrade
 
 # ----------------------------------------------------------
-# 1) Base infra only (VPC + ECR + EKS) so we can push image
+# 1) Base infra (VPC/ECR/EKS)
 # ----------------------------------------------------------
 echo "== Terraform apply (base infra: VPC/ECR/EKS) =="
 terraform -chdir="${ROOT_DIR}" apply -auto-approve \
@@ -74,14 +78,12 @@ terraform -chdir="${ROOT_DIR}" apply -auto-approve \
   -target=module.ecr \
   -target=module.eks
 
-# Pull outputs we need
-ECR_REPO_URL="$(terraform -chdir="${ROOT_DIR}" output -raw ecr_repository_url)"
-EKS_CLUSTER_NAME="$(terraform -chdir="${ROOT_DIR}" output -raw eks_cluster_name)"
-
+ECR_REPO_URL="$(tf_out ecr_repository_url)"
+EKS_CLUSTER_NAME="$(tf_out eks_cluster_name)"
 [ -n "${ECR_REPO_URL}" ] || { echo "ERROR: ECR repository URL output is empty"; exit 1; }
 
 # ----------------------------------------------------------
-# 2) Build & push initial Django image (latest + timestamp)
+# 2) Build & push image
 # ----------------------------------------------------------
 DOCKER_CONTEXT="${ROOT_DIR}/django"
 DOCKERFILE_PATH="${DOCKER_CONTEXT}/Dockerfile"
@@ -108,13 +110,13 @@ echo "${IMAGE_TAG}" > "${ROOT_DIR}/.initial_image_tag"
 echo "Wrote initial image tag to ${ROOT_DIR}/.initial_image_tag"
 
 # ----------------------------------------------------------
-# 3) Update REMOTE GitHub chart values to use this ECR + latest
+# 3) Update REMOTE chart values.yaml (image.* always; DB envs optional)
 # ----------------------------------------------------------
 TMP_DIR="$(mktemp -d)"
 cleanup() { rm -rf "${TMP_DIR}"; }
 trap cleanup EXIT INT HUP
 
-echo "== Syncing chart values in ${GITHUB_REPO_URL} (${GITHUB_BRANCH}) =="
+echo "== Cloning ${GITHUB_REPO_URL} (${GITHUB_BRANCH}) =="
 git -C "${TMP_DIR}" clone \
   "https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com/AntonChubarov/goit-microservice-project.git" repo >/dev/null 2>&1
 cd "${TMP_DIR}/repo"
@@ -123,27 +125,87 @@ git checkout "${GITHUB_BRANCH}"
 VALUES_FILE="lesson-db-module/charts/django-app/values.yaml"
 [ -f "${VALUES_FILE}" ] || { echo "ERROR: ${VALUES_FILE} not found in remote repo"; exit 1; }
 
-# Replace repository and tag lines in values.yaml
-sed -i.bak -E "s#^( *repository:).*#\1 ${ECR_REPO_URL}#" "${VALUES_FILE}"
-sed -i.bak -E "s#^( *tag:).*#\1 latest#" "${VALUES_FILE}"
-rm -f "${VALUES_FILE}.bak"
+# Updater: image.repository & image.tag
+update_image_fields_with_yq() {
+  yq -i ".image.repository = \"${ECR_REPO_URL}\" | .image.tag = \"latest\"" "${VALUES_FILE}"
+}
+update_image_fields_with_awk() {
+  # Only touch keys under the first 'image:' mapping
+  awk -v repo="${ECR_REPO_URL}" -v tag="latest" '
+    BEGIN{in_image=0}
+    /^image:[[:space:]]*$/ {in_image=1; print; next}
+    in_image==1 && /^[^[:space:]]/ {in_image=0}  # left image block
+    {
+      if (in_image==1 && $1 ~ /^[[:space:]]*repository:/) {
+        sub(/repository:.*/,"repository: "repo)
+      } else if (in_image==1 && $1 ~ /^[[:space:]]*tag:/) {
+        sub(/tag:.*/,"tag: "tag)
+      }
+      print
+    }
+  ' "${VALUES_FILE}" > "${VALUES_FILE}.tmp" && mv "${VALUES_FILE}.tmp" "${VALUES_FILE}"
+}
+
+if command -v yq >/dev/null 2>&1; then
+  update_image_fields_with_yq
+else
+  echo "(!) yq not found; using awk fallback for image.repository/tag"
+  update_image_fields_with_awk
+fi
+
+# Optional: update DB envs in remote chart (beware secrets!)
+if [ "${UPDATE_REMOTE_DB_VALUES}" = "true" ]; then
+  if ! command -v yq >/dev/null 2>&1; then
+    echo "WARNING: UPDATE_REMOTE_DB_VALUES=true but 'yq' is not installed; skipping DB env updates."
+  else
+    echo "== (Optional) Creating/reading RDS to populate DB envs =="
+    # Make sure RDS exists to fetch outputs (idempotent)
+    terraform -chdir="${ROOT_DIR}" apply -auto-approve -target=module.rds || true
+
+    RDS_HOST="$(tf_out rds_host)"; [ -z "$RDS_HOST" ] && RDS_HOST="$(tf_out rds_endpoint)"; [ -z "$RDS_HOST" ] && RDS_HOST="$(tf_out rds_address)"
+    RDS_DB="$(tf_out rds_db_name)"; [ -z "$RDS_DB" ] && RDS_DB="django_db"
+    RDS_USER="$(tf_out rds_username)"; [ -z "$RDS_USER" ] && RDS_USER="django_user"
+    RDS_PASS="${TF_VAR_rds_password}"
+
+    if [ -z "$RDS_HOST" ]; then
+      echo "WARNING: Could not resolve RDS host output; skipping DB env updates."
+    else
+      DB_URL="postgres://${RDS_USER}:${RDS_PASS}@${RDS_HOST}:5432/${RDS_DB}"
+      echo "== Updating remote chart DB envs (host=${RDS_HOST}, db=${RDS_DB}, user=${RDS_USER}, pass=$(mask "${RDS_PASS}")) =="
+
+      yq -i "
+        .config.POSTGRES_HOST = \"${RDS_HOST}\" |
+        .config.POSTGRES_PORT = \"5432\" |
+        .config.POSTGRES_USER = \"${RDS_USER}\" |
+        .config.POSTGRES_NAME = \"${RDS_DB}\" |
+        .config.POSTGRES_PASSWORD = \"${RDS_PASS}\" |
+        .config.POSTGRES_URL = \"${DB_URL}\" |
+        .config.DATABASE_URL = \"${DB_URL}\"
+      " "${VALUES_FILE}"
+    fi
+  fi
+else
+  echo "== Skipping DB env updates to remote chart (UPDATE_REMOTE_DB_VALUES=false) =="
+fi
 
 git config user.email "cicd-bot@example.local"
 git config user.name  "cicd-bot"
 git add "${VALUES_FILE}"
 
 if ! git diff --quiet --cached; then
-  git commit -m "ci: point image to ${ECR_REPO_URL} and tag=latest (bootstrap deploy)"
+  MSG="ci: update image repo/tag"
+  [ "${UPDATE_REMOTE_DB_VALUES}" = "true" ] && MSG="${MSG} and DB envs"
+  git commit -m "${MSG}"
   git push origin "${GITHUB_BRANCH}"
+  echo "== Pushed changes to ${GITHUB_BRANCH} =="
 else
-  echo "== No chart changes detected; skipping commit/push =="
+  echo "== No changes in ${VALUES_FILE}; skipping commit/push =="
 fi
 
 cd "${ROOT_DIR}"
 
 # ----------------------------------------------------------
 # 4) Full Terraform apply (Jenkins, Argo CD, addons, etc.)
-#     (Terraform computes outputs that block until LB URLs exist)
 # ----------------------------------------------------------
 echo "== Terraform apply (full stack) =="
 terraform -chdir="${ROOT_DIR}" apply -auto-approve
