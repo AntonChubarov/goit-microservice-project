@@ -23,13 +23,16 @@ export TF_VAR_github_pat="${TF_VAR_github_pat:-dummy-token}"
 export TF_VAR_github_repo_url="${TF_VAR_github_repo_url:-https://example.invalid/dummy.git}"
 export TF_VAR_region="${TF_VAR_region:-$REGION}"
 
-# ---- ensure all ArgoCD module DB vars are present (dummy, non-empty) ----
+# ---- ensure all required vars exist (dummy, non-empty) ----
 # These prevent Terraform from prompting during targeted/full destroy.
 export TF_VAR_rds_username="${TF_VAR_rds_username:-postgres}"
 export TF_VAR_rds_db_name="${TF_VAR_rds_db_name:-myapp}"
 export TF_VAR_rds_password="${TF_VAR_rds_password:-SamplePassw0rd123!}"
 # Must look like a hostname (optionally with :port) to satisfy validation.
 export TF_VAR_rds_endpoint="${TF_VAR_rds_endpoint:-dummy.example.com}"
+
+# NEW: required by module "monitoring" (so destroy doesn't prompt)
+export TF_VAR_grafana_admin_password="${TF_VAR_grafana_admin_password:-GrafanaPassw0rd!}"
 
 echo "== Terraform init =="
 terraform -chdir="${ROOT_DIR}" init -upgrade
@@ -40,19 +43,29 @@ if [ -n "${EKS_CLUSTER_NAME}" ]; then
   echo "== Updating kubeconfig for cluster: ${EKS_CLUSTER_NAME} =="
   aws eks update-kubeconfig --name "${EKS_CLUSTER_NAME}" --region "${REGION}" >/dev/null 2>&1 || true
   VPC_ID="$(aws eks describe-cluster --name "${EKS_CLUSTER_NAME}" \
-      --query 'cluster.resourcesVpcConfig.vpcId' --output text 2>/dev/null || true)"
+      --query 'cluster.resourcesVpcConfig.vpcId' --output text --region "${REGION}" 2>/dev/null || true)"
 else
   VPC_ID=""
   echo "WARN: Could not read 'eks_cluster_name' from Terraform outputs."
 fi
 
-# -------- remove K8s LoadBalancer Services --------
+# -------- remove K8s LoadBalancer Services (uninstall Helm first for faster cleanup) --------
 echo "== Removing Kubernetes LoadBalancer services =="
-helm -n jenkins uninstall jenkins >/dev/null 2>&1 || true
-helm -n argocd uninstall argo-cd >/dev/null 2>&1 || true
-helm -n argocd uninstall argo_cd >/dev/null 2>&1 || true
-helm -n argocd uninstall argocd >/dev/null 2>&1 || true
 
+# Jenkins
+helm -n jenkins uninstall jenkins >/dev/null 2>&1 || true
+
+# Argo CD (try common release names)
+helm -n argocd uninstall argo-cd   >/dev/null 2>&1 || true
+helm -n argocd uninstall argo_cd   >/dev/null 2>&1 || true
+helm -n argocd uninstall argocd    >/dev/null 2>&1 || true
+
+# Monitoring (kube-prometheus-stack / grafana)
+helm -n monitoring uninstall kube-prometheus-stack >/dev/null 2>&1 || true
+helm -n monitoring uninstall grafana               >/dev/null 2>&1 || true
+helm -n monitoring uninstall prometheus            >/dev/null 2>&1 || true
+
+# Delete any remaining LB-type Services
 if kubectl api-resources >/dev/null 2>&1; then
   kubectl get svc -A --no-headers 2>/dev/null | awk '$5=="LoadBalancer"{print $1, $2}' \
   | while read -r NS NAME; do
@@ -61,10 +74,11 @@ if kubectl api-resources >/dev/null 2>&1; then
 fi
 
 # -------- targeted destroy --------
-echo "== Terraform destroy (Jenkins & Argo CD) =="
+echo "== Terraform destroy (Jenkins, Argo CD, Monitoring) =="
 terraform -chdir="${ROOT_DIR}" destroy -auto-approve \
   -target=module.argo_cd \
-  -target=module.jenkins || true
+  -target=module.jenkins \
+  -target=module.monitoring || true
 
 # -------- proactive ELB cleanup --------
 echo "== Deleting any remaining Classic ELBs in VPC ${VPC_ID} =="
