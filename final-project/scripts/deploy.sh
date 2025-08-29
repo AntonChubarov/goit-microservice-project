@@ -29,7 +29,7 @@ export AWS_REGION="$REGION"
 export AWS_DEFAULT_REGION="$REGION"
 
 GITHUB_REPO_URL="https://github.com/AntonChubarov/goit-microservice-project.git"
-GITHUB_BRANCH="lesson-db-module"
+GITHUB_BRANCH="final-project"
 
 UPDATE_REMOTE_DB_VALUES="${UPDATE_REMOTE_DB_VALUES:-false}"   # default: don't commit DB secrets to Git
 
@@ -122,7 +122,7 @@ git -C "${TMP_DIR}" clone \
 cd "${TMP_DIR}/repo"
 git checkout "${GITHUB_BRANCH}"
 
-VALUES_FILE="lesson-db-module/charts/django-app/values.yaml"
+VALUES_FILE="final-project/charts/django-app/values.yaml"
 [ -f "${VALUES_FILE}" ] || { echo "ERROR: ${VALUES_FILE} not found in remote repo"; exit 1; }
 
 # Updater: image.repository & image.tag

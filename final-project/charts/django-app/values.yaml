@@ -1,5 +1,5 @@
 image:
-  repository: 458845291257.dkr.ecr.us-east-1.amazonaws.com/ecr-repo-lesson-db-module
+  repository: 458845291257.dkr.ecr.us-east-1.amazonaws.com/ecr-repo-final-project
   tag: latest
   pullPolicy: IfNotPresent
 #  pullPolicy: Always

@@ -4,9 +4,9 @@ applications:
     project: default
     source:
       repoURL: https://github.com/AntonChubarov/goit-microservice-project.git
-      # Deploys your app chart from the lesson-db-module folder:
-      path: lesson-db-module/charts/django-app
-      targetRevision: lesson-db-module
+      # Deploys your app chart from the final-project folder:
+      path: final-project/charts/django-app
+      targetRevision: final-project
       helm:
         valueFiles:
           - values.yaml

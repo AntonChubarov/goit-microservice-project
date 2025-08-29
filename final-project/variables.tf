@@ -1,7 +1,7 @@
 variable "name" {
   description = "The name of the project"
   type        = string
-  default     = "django-app-lesson-db-module"
+  default     = "django-app-final-project"
 }
 
 variable "region" {
@@ -13,11 +13,11 @@ variable "region" {
 variable "cluster_name" {
   description = "Name of the EKS cluster"
   type        = string
-  default     = "eks-cluster-lesson-db-module"
+  default     = "eks-cluster-final-project"
 }
 
 variable "vpc_name" {
-  default = "vpc-lesson-db-module"
+  default = "vpc-final-project"
 }
 
 variable "instance_type" {
@@ -29,7 +29,7 @@ variable "instance_type" {
 variable "repository_name" {
   description = "Name of the ECR repository"
   type        = string
-  default     = "ecr-repo-lesson-db-module"
+  default     = "ecr-repo-final-project"
 }
 
 // github credentials
