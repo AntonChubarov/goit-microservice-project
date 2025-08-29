@@ -45,6 +45,13 @@ module "eks" {
   min_size      = 1
 }
 
+module "monitoring" {
+  source = "./modules/monitoring"
+  depends_on = [
+    module.eks
+  ]
+}
+
 data "aws_eks_cluster" "eks" {
   name       = module.eks.eks_cluster_name
   depends_on = [module.eks]
