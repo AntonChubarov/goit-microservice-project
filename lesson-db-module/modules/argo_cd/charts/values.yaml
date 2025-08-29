@@ -1,0 +1,45 @@
+applications:
+  - name: example-app
+    namespace: default
+    project: default
+    source:
+      repoURL: https://github.com/AntonChubarov/goit-microservice-project.git
+      # Deploys your app chart from the lesson-db-module folder:
+      path: lesson-db-module/charts/django-app
+      targetRevision: lesson-db-module
+      helm:
+        valueFiles:
+          - values.yaml
+        values: |
+          # Use external RDS instead of bundled Postgres
+          postgresql:
+            enabled: false
+
+          # App env (ConfigMap -> envFrom)
+          config:
+            POSTGRES_HOST: "${rds_host}"
+            POSTGRES_PORT: "5432"
+            POSTGRES_USER: "${rds_username}"
+            POSTGRES_DB:   "${rds_db_name}"
+            POSTGRES_NAME: "${rds_db_name}"   # back-compat
+            POSTGRES_PASSWORD: "${rds_password}"
+            POSTGRES_URL:  "postgres://${rds_username}:${rds_password}@${rds_host}:5432/${rds_db_name}"
+            DATABASE_URL:  "postgres://${rds_username}:${rds_password}@${rds_host}:5432/${rds_db_name}"
+
+    destination:
+      server: https://kubernetes.default.svc
+      namespace: default
+    syncPolicy:
+      automated:
+        prune: true
+        selfHeal: true
+
+repositories:
+  - name: example-app
+    url: ${github_repo_url}
+    username: ${github_user}
+    password: ${github_pat}
+
+repoConfig:
+  insecure: "true"
+  enableLfs: "true"
