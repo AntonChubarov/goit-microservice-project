@@ -50,6 +50,7 @@ module "monitoring" {
   depends_on = [
     module.eks
   ]
+  grafana_admin_password = var.grafana_admin_password
 }
 
 data "aws_eks_cluster" "eks" {

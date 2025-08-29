@@ -135,3 +135,11 @@ variable "rds_instance_parameter_group_family" {
   type        = string
   default     = "postgres17"
 }
+
+// monitoring
+
+variable "grafana_admin_password" {
+  description = "Grafana admin password (passed to modules/monitoring)"
+  type        = string
+  sensitive   = true
+}
