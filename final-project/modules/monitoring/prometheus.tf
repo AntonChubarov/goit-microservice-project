@@ -11,8 +11,12 @@ resource "helm_release" "kube-prometheus-stack" {
   ]
 
   # Ensure Grafana admin password is set (securely)
-  set_sensitive {
-    name  = "grafana.adminPassword"
-    value = var.grafana_admin_password
-  }
+  set_sensitive = [
+    {
+      name  = "grafana.adminPassword"
+      value = var.grafana_admin_password
+      # Optional but harmless; forces string type:
+      # type  = "string"
+    }
+  ]
 }
