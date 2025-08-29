@@ -34,13 +34,19 @@ sh ./scripts/show_passwords.sh
 - Jenkins: `admin / admin123` (unless changed)
 - Argo CD: `admin / <printed password>`
 
-### 4) Configure kubectl
+### 4) Configure kubectl (optional)
 ```shell
 sh ./scripts/aws_kubeconfig.sh
 ```
 Updates kubeconfig for the EKS cluster from Terraform outputs to access through kubectl, k9s, etc.
 
-### 5) Destroy everything
+### 5) Check cluster state
+  1. Open Grafana URL in browser;
+  2. Use Grafana credentials to log in;
+  3. Go to **Dashboards** section;
+  4. Open any available dashboard, **Kubernetes / Compute Resources / Cluster** for example.
+
+### 6) Destroy everything
 ***Unstable! Check manually after!***
 ```shell
 sh ./scripts/destroy.sh
