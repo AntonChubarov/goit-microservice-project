@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-# Show external URLs for Argo CD, Jenkins, and the Django app.
+# Show external URLs for Argo CD, Jenkins, Grafana, and the Django app.
 # Usage:
 #   ./scripts/show_urls.sh
 #
@@ -10,6 +10,8 @@ set -eu
 # - Terraform outputs include 'eks_cluster_name'.
 # - Argo CD service may NOT be literally 'argocd-server' (chart templating varies).
 #   We auto-detect by labels and fall back to common names; also try Ingress.
+# - Grafana (kube-prometheus-stack) may expose via LoadBalancer or Ingress.
+#   We auto-detect by labels and fall back to common names.
 
 REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -110,6 +112,41 @@ if [ -z "$ARGO_URL" ] || [ "$ARGO_URL" = "(pending)" ]; then
   fi
 fi
 
+# ---------- Grafana (http by default) ----------
+detect_grafana_svc() {
+  ns="monitoring"
+  # kube-prometheus-stack exposes Grafana with label app.kubernetes.io/name=grafana
+  name="$(kubectl -n "$ns" get svc -l app.kubernetes.io/name=grafana \
+          -o jsonpath='{.items[?(@.spec.type=="LoadBalancer")].metadata.name}' 2>/dev/null || true)"
+  if [ -n "$name" ]; then printf "%s" "$name"; return 0; fi
+  # Fallback to common service names
+  for n in kube-prometheus-stack-grafana grafana; do
+    if kubectl -n "$ns" get svc "$n" >/dev/null 2>&1; then printf "%s" "$n"; return 0; fi
+  done
+  printf ""
+}
+GRAFANA_URL=""
+GRAFANA_SVC="$(detect_grafana_svc)"
+if [ -n "$GRAFANA_SVC" ]; then
+  GRAFANA_URL="$(svc_url monitoring "$GRAFANA_SVC" http)"
+fi
+
+# If still pending/empty, try Grafana Ingress
+if [ -z "$GRAFANA_URL" ] || [ "$GRAFANA_URL" = "(pending)" ]; then
+  ing="$(kubectl -n monitoring get ingress -l app.kubernetes.io/name=grafana \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  if [ -z "$ing" ]; then
+    # any ingress in monitoring (first)
+    ing="$(kubectl -n monitoring get ingress -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  fi
+  if [ -n "$ing" ]; then
+    # scheme: default to http unless you terminate TLS at the ingress
+    GRAFANA_URL="$(ing_url monitoring "$ing" http)"
+  else
+    [ -z "$GRAFANA_URL" ] && GRAFANA_URL="(pending)"
+  fi
+fi
+
 # ---------- Django app (http) ----------
 detect_django_url() {
   # 1) common service name in default namespace
@@ -126,9 +163,9 @@ detect_django_url() {
     return 0
   fi
 
-  # 3) any LoadBalancer svc in any namespace, excluding argocd/jenkins/system namespaces
+  # 3) any LoadBalancer svc in any namespace, excluding argocd/jenkins/system/monitoring namespaces
   line="$(kubectl get svc -A -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null \
-        | grep -Ev '^(kube-system|kube-public|kube-node-lease|argocd|jenkins) ' \
+        | grep -Ev '^(kube-system|kube-public|kube-node-lease|argocd|jenkins|monitoring) ' \
         | head -n1 || true)"
   ns="$(printf "%s" "${line}" | awk '{print $1}')"
   svc="$(printf "%s" "${line}" | awk '{print $2}')"
@@ -144,4 +181,5 @@ DJANGO_URL="$(detect_django_url)"
 echo "================ Service URLs ================"
 echo "Jenkins : ${JENKINS_URL}"
 echo "Argo CD : ${ARGO_URL}"
+echo "Grafana : ${GRAFANA_URL}"
 echo "Django  : ${DJANGO_URL}"

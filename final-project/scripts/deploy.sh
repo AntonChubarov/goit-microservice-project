@@ -7,8 +7,8 @@ set -eu
 # - Base infra (VPC/ECR/EKS)
 # - Build & push Django image
 # - Update REMOTE chart values.yaml (image.* always; DB envs optional)
-# - Full Terraform apply (Jenkins, Argo CD, etc.)
-# - Print service URLs
+# - Full Terraform apply (Jenkins, Argo CD, Monitoring, etc.)
+# - Print service URLs (Jenkins / Argo CD / Grafana)
 #
 # Usage:
 #   GITHUB_USERNAME=... GITHUB_TOKEN=... ./scripts/deploy.sh
@@ -19,6 +19,7 @@ set -eu
 # Notes:
 #   - Region pinned to us-east-1.
 #   - DB updates pull from Terraform outputs when available.
+#   - Grafana admin password is provided via TF_VAR_grafana_admin_password.
 # ==========================================================
 
 : "${GITHUB_USERNAME:?Set GITHUB_USERNAME, e.g. GITHUB_USERNAME=me}"
@@ -54,11 +55,13 @@ export TF_VAR_github_pat="$GITHUB_TOKEN"
 export TF_VAR_github_repo_url="$GITHUB_REPO_URL"
 export TF_VAR_region="$REGION"
 
-# Non-interactive default; override by exporting TF_VAR_rds_password
+# Non-interactive defaults; override by exporting beforehand if needed
 export TF_VAR_rds_password="${TF_VAR_rds_password:-SamplePassw0rd123!}"
+export TF_VAR_grafana_admin_password="${TF_VAR_grafana_admin_password:-GrafanaPassw0rd!}"
 
 echo "== Region: ${REGION} =="
 echo "== Using TF_VAR_rds_password (hidden) =="
+echo "== Using TF_VAR_grafana_admin_password (hidden) =="
 
 # Helper: safe terraform output
 tf_out() { terraform -chdir="${ROOT_DIR}" output -raw "$1" 2>/dev/null || true; }
@@ -206,6 +209,7 @@ cd "${ROOT_DIR}"
 
 # ----------------------------------------------------------
 # 4) Full Terraform apply (Jenkins, Argo CD, addons, etc.)
+#     (includes monitoring stack if present in Terraform)
 # ----------------------------------------------------------
 echo "== Terraform apply (full stack) =="
 terraform -chdir="${ROOT_DIR}" apply -auto-approve
@@ -214,10 +218,17 @@ terraform -chdir="${ROOT_DIR}" apply -auto-approve
 # 5) Print URLs from Terraform outputs
 # ----------------------------------------------------------
 echo "================ Service URLs (from Terraform outputs) ================"
-echo "Jenkins: $(terraform -chdir="${ROOT_DIR}" output -raw jenkins_url || echo '(unavailable)')"
-echo "Argo CD: $(terraform -chdir="${ROOT_DIR}" output -raw argocd_url || echo '(unavailable)')"
+echo "Jenkins: $(terraform -chdir="${ROOT_DIR}" output -raw jenkins_url  || echo '(unavailable)')"
+echo "Argo CD: $(terraform -chdir="${ROOT_DIR}" output -raw argocd_url   || echo '(unavailable)')"
+echo "Grafana: $(terraform -chdir="${ROOT_DIR}" output -raw grafana_url  || echo '(unavailable)')"
 
-echo "Argo CD admin password command:"
+echo
+echo "Argo CD admin password:"
 terraform -chdir="${ROOT_DIR}" output -raw argocd_admin_password || true
 
+echo
+echo "Grafana admin user: admin"
+echo "Grafana admin password is set via TF_VAR_grafana_admin_password (hidden)."
+
+echo
 echo "✅ Deployment complete. Region=${REGION}. ECR image pushed as: ${ECR_REPO_URL}:latest and :${IMAGE_TAG}"

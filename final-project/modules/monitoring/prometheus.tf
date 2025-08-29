@@ -9,4 +9,10 @@ resource "helm_release" "kube-prometheus-stack" {
   values = [
     file("${path.module}/values.yaml")
   ]
+
+  # Ensure Grafana admin password is set (securely)
+  set_sensitive {
+    name  = "grafana.adminPassword"
+    value = var.grafana_admin_password
+  }
 }

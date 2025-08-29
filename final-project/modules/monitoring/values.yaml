@@ -1,8 +1,20 @@
+# Expose Grafana via LoadBalancer and keep Prometheus storage
+grafana:
+  service:
+    type: LoadBalancer
+    port: 80        # external LB port
+    targetPort: 3000
+  # Note: adminPassword is injected via Terraform set_sensitive
+  # leaving here commented as a reminder
+  # adminPassword: "override-via-terraform"
+
 prometheus:
   prometheusSpec:
     storageSpec:
-     volumeClaimTemplate:
-       spec:
-         resources:
-           requests:
-             storage: 10Gi
+      volumeClaimTemplate:
+        spec:
+          storageClassName: ebs-sc
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi

@@ -129,6 +129,14 @@ data "kubernetes_service" "argocd_server" {
   depends_on = [module.argo_cd]
 }
 
+data "kubernetes_service" "grafana" {
+  metadata {
+    name      = "kube-prometheus-stack-grafana"
+    namespace = "monitoring"
+  }
+  depends_on = [module.monitoring]
+}
+
 # External URLs (prefer hostname; fall back to IP)
 output "jenkins_url" {
   description = "External URL for Jenkins"
@@ -138,6 +146,11 @@ output "jenkins_url" {
 output "argocd_url" {
   description = "External URL for Argo CD"
   value       = "http://${try(data.kubernetes_service.argocd_server.status[0].load_balancer[0].ingress[0].hostname, try(data.kubernetes_service.argocd_server.status[0].load_balancer[0].ingress[0].ip, ""))}"
+}
+
+output "grafana_url" {
+  description = "External URL for Grafana"
+  value       = "http://${try(data.kubernetes_service.grafana.status[0].load_balancer[0].ingress[0].hostname, try(data.kubernetes_service.grafana.status[0].load_balancer[0].ingress[0].ip, ""))}"
 }
 
 #-------------RDS-----------------
